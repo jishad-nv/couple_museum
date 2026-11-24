@@ -1,90 +1,115 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../../store/gameStore';
 import { INTERACTION_DISTANCE, COLORS } from '../../utils/constants';
+import { createMemoryCanvasTexture, type MemoryItem } from '../../utils/memoryArt';
 
 interface PhotoFrameProps {
   position: [number, number, number];
   rotation?: [number, number, number];
-  photoId: string;
-  photoSrc: string;
-  message?: string;
+  memory: MemoryItem;
   size?: [number, number];
+  hanging?: boolean;
+  ropeLength?: number;
 }
 
 export default function PhotoFrame({
   position,
   rotation = [0, 0, 0],
-  photoId,
-  photoSrc,
-  message = '',
-  size = [1.6, 1.2],
+  memory,
+  size = [1.85, 1.35],
+  hanging = false,
+  ropeLength = 0.95,
 }: PhotoFrameProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const glowRef = useRef<THREE.Mesh>(null);
+  const swingRef = useRef<THREE.Group>(null);
+  const worldPosRef = useRef(new THREE.Vector3());
+  const isNearRef = useRef(false);
   const [isNear, setIsNear] = useState(false);
-  const { playerPosition, setCurrentPhoto, setNearbyInteractable } = useGameStore();
 
-  useFrame(() => {
+  const openMemory = useGameStore((s) => s.openMemory);
+
+  const texture = useMemo(() => createMemoryCanvasTexture(memory), [memory]);
+
+  useEffect(() => {
+    return () => {
+      texture.dispose();
+    };
+  }, [texture]);
+
+  useFrame((state) => {
     if (!groupRef.current) return;
 
-    const worldPos = new THREE.Vector3();
-    groupRef.current.getWorldPosition(worldPos);
-
-    const dist = worldPos.distanceTo(playerPosition);
-    const near = dist < INTERACTION_DISTANCE;
-
-    if (near !== isNear) {
-      setIsNear(near);
-      if (near) {
-        setNearbyInteractable(photoId);
-      } else {
-        setNearbyInteractable(null);
-      }
+    if (hanging && swingRef.current) {
+      // Ultra-gentle pendulum breeze from overhead branch pivot — smooth, zero jitter
+      const t = state.clock.elapsedTime;
+      swingRef.current.rotation.z = Math.sin(t * 0.75 + position[0] * 1.3) * 0.018;
+      swingRef.current.rotation.x = Math.cos(t * 0.6 + position[2] * 1.1) * 0.012;
     }
 
-    // Glow effect
-    if (glowRef.current) {
-      const scale = near ? 1.08 + Math.sin(Date.now() * 0.003) * 0.02 : 1;
-      glowRef.current.scale.setScalar(scale);
-      (glowRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity =
-        near ? 0.3 + Math.sin(Date.now() * 0.004) * 0.1 : 0;
+    groupRef.current.getWorldPosition(worldPosRef.current);
+    const s = useGameStore.getState();
+    const dist = worldPosRef.current.distanceTo(s.playerPosition);
+    const near = dist < INTERACTION_DISTANCE;
+
+    if (near !== isNearRef.current) {
+      isNearRef.current = near;
+      setIsNear(near);
+      if (near) {
+        s.setNearbyMemory(memory);
+      } else if (s.nearbyMemory?.id === memory.id) {
+        s.setNearbyMemory(null);
+      }
     }
   });
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat || e.code !== 'KeyE') return;
+      const s = useGameStore.getState();
+      if (s.showPhotoViewer || s.showGuestbookModal || s.showVideoPlayer) return;
+      if (s.nearbyMemory?.id === memory.id) {
+        s.openMemory(memory);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (useGameStore.getState().nearbyMemory?.id === memory.id) {
+        useGameStore.getState().setNearbyMemory(null);
+      }
+    };
+  }, [memory]);
+
   const handleClick = useCallback(() => {
-    if (isNear) {
-      setCurrentPhoto(photoSrc, message);
-    }
-  }, [isNear, photoSrc, message, setCurrentPhoto]);
+    openMemory(memory);
+  }, [memory, openMemory]);
 
-  return (
-    <group ref={groupRef} position={position} rotation={rotation}>
-      {/* Frame border */}
+  const frameRim = hanging ? 0.065 : 0.18;
+  const matBorder = hanging ? 0.025 : 0.06;
+
+  const frameContent = (
+    <>
+      {/* Gold museum outer frame */}
       <mesh castShadow>
-        <boxGeometry args={[size[0] + 0.15, size[1] + 0.15, 0.08]} />
-        <meshStandardMaterial
-          color={COLORS.gold}
-          metalness={0.7}
-          roughness={0.2}
-        />
+        <boxGeometry args={[size[0] + frameRim, size[1] + frameRim, hanging ? 0.04 : 0.07]} />
+        <meshStandardMaterial color={COLORS.gold} metalness={0.28} roughness={0.3} />
       </mesh>
 
-      {/* Inner frame mat */}
-      <mesh position={[0, 0, 0.02]}>
-        <boxGeometry args={[size[0] + 0.05, size[1] + 0.05, 0.05]} />
-        <meshStandardMaterial color="#faf8f5" roughness={0.5} />
+      {/* Cream museum mat */}
+      <mesh position={[0, 0, hanging ? 0.014 : 0.025]}>
+        <boxGeometry args={[size[0] + matBorder, size[1] + matBorder, 0.026]} />
+        <meshStandardMaterial color="#faf6ee" roughness={0.6} />
       </mesh>
 
-      {/* Photo surface - placeholder color until real images loaded */}
+      {/* Memory artwork surface */}
       <mesh
-        ref={glowRef}
-        position={[0, 0, 0.045]}
+        position={[0, 0, hanging ? 0.028 : 0.048]}
         onClick={handleClick}
         onPointerOver={() => {
-          document.body.style.cursor = isNear ? 'pointer' : 'default';
+          document.body.style.cursor = 'pointer';
         }}
         onPointerOut={() => {
           document.body.style.cursor = 'default';
@@ -92,40 +117,103 @@ export default function PhotoFrame({
       >
         <planeGeometry args={size} />
         <meshStandardMaterial
-          color="#d4a5b5"
-          roughness={0.5}
-          emissive="#d4a5b5"
-          emissiveIntensity={0}
+          map={texture}
+          color="#ffffff"
+          roughness={0.42}
+          emissive={isNear ? '#4a3a22' : hanging ? '#221a12' : '#000000'}
+          emissiveIntensity={isNear ? 0.25 : hanging ? 0.16 : 0}
         />
       </mesh>
 
-      {/* Photo label */}
-      {message && (
-        <Text
-          position={[0, -(size[1] / 2 + 0.2), 0.05]}
-          fontSize={0.08}
-          color="#888"
-          anchorX="center"
-          anchorY="top"
-          maxWidth={size[0]}
-          font={undefined}
-        >
-          {message}
-        </Text>
+      {/* Gallery overhead picture sconce */}
+      {!hanging && (
+        <group position={[0, size[1] / 2 + 0.24, 0.16]}>
+          <mesh>
+            <boxGeometry args={[0.42, 0.05, 0.12]} />
+            <meshStandardMaterial color={COLORS.gold} metalness={0.25} roughness={0.35} />
+          </mesh>
+          <mesh position={[0, -0.03, 0.04]}>
+            <boxGeometry args={[0.34, 0.02, 0.04]} />
+            <meshStandardMaterial color="#fff3cc" emissive="#ffe5a0" emissiveIntensity={1.6} />
+          </mesh>
+        </group>
       )}
 
-      {/* Interaction indicator */}
-      {isNear && (
-        <group position={[0, size[1] / 2 + 0.3, 0.1]}>
-          <Text
-            fontSize={0.1}
-            color={COLORS.gold}
-            anchorX="center"
-            font={undefined}
-          >
-            Press E to view
-          </Text>
+      {/* Double-sided keepsake photo & mat + delicate miniature LED accent dots along hanging frame top */}
+      {hanging && (
+        <>
+          <mesh position={[0, 0, -0.014]} rotation={[0, Math.PI, 0]}>
+            <boxGeometry args={[size[0] + matBorder, size[1] + matBorder, 0.026]} />
+            <meshStandardMaterial color="#faf6ee" roughness={0.6} />
+          </mesh>
+          <mesh position={[0, 0, -0.028]} rotation={[0, Math.PI, 0]} onClick={handleClick}>
+            <planeGeometry args={size} />
+            <meshStandardMaterial
+              map={texture}
+              color="#ffffff"
+              roughness={0.42}
+              emissive={isNear ? '#4a3a22' : '#221a12'}
+              emissiveIntensity={isNear ? 0.25 : 0.16}
+            />
+          </mesh>
+          {[-0.28, 0, 0.28].map((lx, idx) => (
+            <mesh key={`led-${idx}`} position={[lx * size[0], size[1] / 2 + 0.042, 0.024]}>
+              <sphereGeometry args={[0.015, 6, 6]} />
+              <meshStandardMaterial color="#fff5cc" emissive="#ffcf6e" emissiveIntensity={2.4} />
+            </mesh>
+          ))}
+        </>
+      )}
+
+      {/* Compact Brass Plaque tucked beneath frame */}
+      <mesh position={[0, -(size[1] / 2 + (hanging ? 0.072 : 0.24)), 0.022]}>
+        <boxGeometry args={[hanging ? size[0] * 0.82 : Math.min(1.5, size[0] * 0.96), hanging ? 0.075 : 0.2, 0.016]} />
+        <meshStandardMaterial color="#241822" roughness={0.5} />
+      </mesh>
+      <Text
+        position={[0, -(size[1] / 2 + (hanging ? 0.072 : 0.24)), 0.034]}
+        fontSize={hanging ? 0.032 : 0.085}
+        color={COLORS.goldLight}
+        anchorX="center"
+        anchorY="middle"
+        maxWidth={size[0] * 0.78}
+        material-side={THREE.FrontSide}
+        font={undefined}
+      >
+        {memory.title}
+      </Text>
+    </>
+  );
+
+  // Pivot around the top branch attachment point so rope + frame sway naturally together
+  const pivotHeight = size[1] / 2 + ropeLength;
+
+  return (
+    <group ref={groupRef} position={position} rotation={rotation}>
+      {hanging ? (
+        <group position={[0, pivotHeight, 0]}>
+          <group ref={swingRef} position={[0, -pivotHeight, 0]}>
+            {/* Two braided suspension ropes attached cleanly up to the overhead tree branch */}
+            <mesh position={[-size[0] * 0.34, size[1] / 2 + ropeLength / 2, 0]}>
+              <cylinderGeometry args={[0.01, 0.01, ropeLength, 6]} />
+              <meshStandardMaterial color="#8c6d46" roughness={0.92} />
+            </mesh>
+            <mesh position={[size[0] * 0.34, size[1] / 2 + ropeLength / 2, 0]}>
+              <cylinderGeometry args={[0.01, 0.01, ropeLength, 6]} />
+              <meshStandardMaterial color="#8c6d46" roughness={0.92} />
+            </mesh>
+            {/* Brass hanging rings */}
+            {[-size[0] * 0.34, size[0] * 0.34].map((rx, idx) => (
+              <mesh key={`ring-${idx}`} position={[rx, size[1] / 2 + 0.05, 0.01]}>
+                <torusGeometry args={[0.022, 0.006, 6, 12]} />
+                <meshStandardMaterial color={COLORS.gold} metalness={0.3} roughness={0.35} />
+              </mesh>
+            ))}
+            {frameContent}
+          </group>
         </group>
+      ) : (
+        frameContent
       )}
     </group>
   );

@@ -24,8 +24,56 @@ export function useInput() {
 
   const joystickInput = useGameStore((s) => s.joystickInput);
   const isMobile = useGameStore((s) => s.isMobile);
+  const showGuestbookModal = useGameStore((s) => s.showGuestbookModal);
+  const showPhotoViewer = useGameStore((s) => s.showPhotoViewer);
+  const showVideoPlayer = useGameStore((s) => s.showVideoPlayer);
+  const showLoveAlbum = useGameStore((s) => s.showLoveAlbum);
+  const showAdminLogin = useGameStore((s) => s.showAdminLogin);
+  const showAdminPanel = useGameStore((s) => s.showAdminPanel);
+  const isAnyModalOpen =
+    showGuestbookModal ||
+    showPhotoViewer ||
+    showVideoPlayer ||
+    showLoveAlbum ||
+    showAdminLogin ||
+    showAdminPanel;
+
+  const clearInputs = useCallback(() => {
+    inputRef.current.forward = false;
+    inputRef.current.backward = false;
+    inputRef.current.left = false;
+    inputRef.current.right = false;
+    inputRef.current.jump = false;
+    inputRef.current.run = false;
+    inputRef.current.interact = false;
+  }, []);
+
+  const isTypingInForm = (target: EventTarget | null) => {
+    const el = target as HTMLElement | null;
+    if (!el) return false;
+    const tag = el.tagName;
+    return (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      el.isContentEditable
+    );
+  };
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const s = useGameStore.getState();
+    if (
+      s.showGuestbookModal ||
+      s.showPhotoViewer ||
+      s.showVideoPlayer ||
+      s.showLoveAlbum ||
+      s.showAdminLogin ||
+      s.showAdminPanel ||
+      isTypingInForm(e.target)
+    ) {
+      return;
+    }
+
     switch (e.code) {
       case 'KeyW':
       case 'ArrowUp':
@@ -89,15 +137,47 @@ export function useInput() {
   }, []);
 
   useEffect(() => {
+    if (isAnyModalOpen) {
+      clearInputs();
+    }
+  }, [isAnyModalOpen, clearInputs]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) clearInputs();
+    };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', clearInputs);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', clearInputs);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [handleKeyDown, handleKeyUp]);
+  }, [handleKeyDown, handleKeyUp, clearInputs]);
 
   const getInput = useCallback((): InputState => {
+    const s = useGameStore.getState();
+    if (
+      s.showGuestbookModal ||
+      s.showPhotoViewer ||
+      s.showVideoPlayer ||
+      s.showLoveAlbum ||
+      s.showAdminLogin ||
+      s.showAdminPanel
+    ) {
+      return {
+        forward: false,
+        backward: false,
+        left: false,
+        right: false,
+        jump: false,
+        run: false,
+        interact: false,
+      };
+    }
     if (isMobile) {
       return {
         forward: joystickInput.y < -0.2,

@@ -2,121 +2,111 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
+import { PLAYER_HEIGHT } from '../utils/constants';
 import {
-  CAMERA_SMOOTHNESS,
-  CAMERA_HEIGHT_OFFSET,
-  PLAYER_HEIGHT,
-} from '../utils/constants';
+  CAMERA_BOUNDS,
+  clampCameraDistance,
+  clampCameraPitch,
+  getCameraColliders,
+} from '../utils/museumLayout';
 
 export default function ThirdPersonCamera() {
   const { camera, gl } = useThree();
-  const {
-    playerPosition,
-    cameraAngleX,
-    cameraAngleY,
-    cameraDistance,
-    cameraMode,
-    setCameraAngle,
-    setCameraDistance,
-    isMobile,
-  } = useGameStore();
+  const isMobile = useGameStore((s) => s.isMobile);
 
   const isPointerDown = useRef(false);
   const previousPointer = useRef({ x: 0, y: 0 });
-  const targetPosition = useRef(new THREE.Vector3());
-  const currentPosition = useRef(new THREE.Vector3(0, 5, 10));
+  const currentPosition = useRef(new THREE.Vector3(0, 2.15, 17.8));
+  const currentLookAt = useRef(new THREE.Vector3(0, 1.75, 12.5));
 
-  // Mouse/touch handlers for camera rotation
-  const handlePointerDown = useCallback(
-    (e: PointerEvent) => {
-      // Don't start camera rotation if clicking on UI elements
-      const target = e.target as HTMLElement;
-      if (target.closest('.ui-overlay')) return;
+  // Pre-allocated scratch helpers (zero GC inside useFrame)
+  const desiredOffset = useRef(new THREE.Vector3());
+  const desiredPos = useRef(new THREE.Vector3());
+  const rayOrigin = useRef(new THREE.Vector3());
+  const rayDir = useRef(new THREE.Vector3());
+  const lookTarget = useRef(new THREE.Vector3());
+  const raycaster = useRef(new THREE.Raycaster());
 
-      if (e.button === 0 || e.pointerType === 'touch') {
-        // For desktop: only right-click or if no UI overlay
-        if (!isMobile && e.button !== 2 && e.button !== 0) return;
-        isPointerDown.current = true;
-        previousPointer.current = { x: e.clientX, y: e.clientY };
-      }
-    },
-    [isMobile]
-  );
+  const handlePointerDown = useCallback((e: PointerEvent) => {
+    const s = useGameStore.getState();
+    if (s.showGuestbookModal || s.showPhotoViewer || s.showVideoPlayer) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.ui-overlay')) return;
+
+    if (e.button === 0 || e.button === 2 || e.pointerType === 'touch') {
+      isPointerDown.current = true;
+      previousPointer.current = { x: e.clientX, y: e.clientY };
+    }
+  }, []);
 
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
       if (!isPointerDown.current) return;
+      const s = useGameStore.getState();
 
       const deltaX = e.clientX - previousPointer.current.x;
       const deltaY = e.clientY - previousPointer.current.y;
+      const sensitivity = isMobile ? 0.0045 : 0.0035;
 
-      const sensitivity = isMobile ? 0.004 : 0.003;
-
-      setCameraAngle(
-        cameraAngleX - deltaX * sensitivity,
-        cameraAngleY + deltaY * sensitivity
+      s.setCameraAngle(
+        s.cameraAngleX - deltaX * sensitivity,
+        clampCameraPitch(s.cameraAngleY + deltaY * sensitivity)
       );
 
       previousPointer.current = { x: e.clientX, y: e.clientY };
     },
-    [cameraAngleX, cameraAngleY, setCameraAngle, isMobile]
+    [isMobile]
   );
 
   const handlePointerUp = useCallback(() => {
     isPointerDown.current = false;
   }, []);
 
-  const handleWheel = useCallback(
-    (e: WheelEvent) => {
-      e.preventDefault();
-      setCameraDistance(cameraDistance + e.deltaY * 0.005);
-    },
-    [cameraDistance, setCameraDistance]
-  );
+  const handleWheel = useCallback((e: WheelEvent) => {
+    const s = useGameStore.getState();
+    if (s.showGuestbookModal || s.showPhotoViewer || s.showVideoPlayer) return;
+    e.preventDefault();
+    s.setCameraDistance(clampCameraDistance(s.cameraDistance + e.deltaY * 0.004));
+  }, []);
 
-  // Touch pinch zoom
   const touchesRef = useRef<Touch[]>([]);
   const handleTouchStart = useCallback((e: TouchEvent) => {
     touchesRef.current = Array.from(e.touches);
   }, []);
 
-  const handleTouchMove = useCallback(
-    (e: TouchEvent) => {
-      if (e.touches.length === 2 && touchesRef.current.length === 2) {
-        const prevDist = Math.hypot(
-          touchesRef.current[0].clientX - touchesRef.current[1].clientX,
-          touchesRef.current[0].clientY - touchesRef.current[1].clientY
-        );
-        const curDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        const delta = prevDist - curDist;
-        setCameraDistance(cameraDistance + delta * 0.02);
-      }
-      touchesRef.current = Array.from(e.touches);
-    },
-    [cameraDistance, setCameraDistance]
-  );
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (e.touches.length === 2 && touchesRef.current.length === 2) {
+      const prevDist = Math.hypot(
+        touchesRef.current[0].clientX - touchesRef.current[1].clientX,
+        touchesRef.current[0].clientY - touchesRef.current[1].clientY
+      );
+      const curDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const s = useGameStore.getState();
+      s.setCameraDistance(clampCameraDistance(s.cameraDistance + (prevDist - curDist) * 0.015));
+    }
+    touchesRef.current = Array.from(e.touches);
+  }, []);
 
   useEffect(() => {
     const canvas = gl.domElement;
     canvas.addEventListener('pointerdown', handlePointerDown);
-    canvas.addEventListener('pointermove', handlePointerMove);
-    canvas.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
     canvas.addEventListener('pointerleave', handlePointerUp);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     canvas.addEventListener('touchstart', handleTouchStart, { passive: true });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: true });
 
-    // Prevent context menu on right click
     const preventContext = (e: Event) => e.preventDefault();
     canvas.addEventListener('contextmenu', preventContext);
 
     return () => {
       canvas.removeEventListener('pointerdown', handlePointerDown);
-      canvas.removeEventListener('pointermove', handlePointerMove);
-      canvas.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
       canvas.removeEventListener('pointerleave', handlePointerUp);
       canvas.removeEventListener('wheel', handleWheel);
       canvas.removeEventListener('touchstart', handleTouchStart);
@@ -133,43 +123,81 @@ export default function ThirdPersonCamera() {
     handleTouchMove,
   ]);
 
-  useFrame(() => {
-    if (cameraMode === 'third-person') {
-      // Calculate target camera position
-      const offset = new THREE.Vector3(
-        Math.sin(cameraAngleX) * Math.cos(cameraAngleY) * cameraDistance,
-        Math.sin(cameraAngleY) * cameraDistance + CAMERA_HEIGHT_OFFSET,
-        Math.cos(cameraAngleX) * Math.cos(cameraAngleY) * cameraDistance
+  useFrame((_, rawDelta) => {
+    const delta = Math.min(rawDelta, 0.05);
+    const s = useGameStore.getState();
+    const pPos = s.playerPosition;
+    const partnerPos = s.partnerPosition;
+
+    // Frame the couple midpoint when together so both stay cleanly visible
+    const partnerDist = Math.hypot(pPos.x - partnerPos.x, pPos.z - partnerPos.z);
+    const frameCouple = (s.isHoldingHands || s.isSitting || s.activeCoupleSequence !== 'none') && partnerDist < 2.2;
+    const anchorX = frameCouple ? (pPos.x + partnerPos.x) * 0.5 : pPos.x;
+    const anchorZ = frameCouple ? (pPos.z + partnerPos.z) * 0.5 : pPos.z;
+    const anchorY = pPos.y;
+
+    if (s.cameraMode === 'third-person') {
+      const dist = clampCameraDistance(s.cameraDistance);
+      const pitch = clampCameraPitch(s.cameraAngleY);
+      const yaw = s.cameraAngleX;
+
+      desiredOffset.current.set(
+        Math.sin(yaw) * Math.cos(pitch) * dist,
+        Math.sin(pitch) * dist,
+        Math.cos(yaw) * Math.cos(pitch) * dist
       );
 
-      targetPosition.current.copy(playerPosition).add(offset);
+      rayOrigin.current.set(anchorX, anchorY + 1.45, anchorZ);
+      desiredPos.current.copy(rayOrigin.current).add(desiredOffset.current);
 
-      // Smooth camera movement
-      currentPosition.current.lerp(targetPosition.current, CAMERA_SMOOTHNESS);
+      // Raycast against architectural walls/doors/pillars so camera never passes through walls
+      rayDir.current.copy(desiredPos.current).sub(rayOrigin.current);
+      const maxRayLen = rayDir.current.length();
+      if (maxRayLen > 0.01) {
+        rayDir.current.divideScalar(maxRayLen);
+        raycaster.current.set(rayOrigin.current, rayDir.current);
+        raycaster.current.far = maxRayLen;
+
+        const colliders = getCameraColliders();
+        if (colliders.length > 0) {
+          const hits = raycaster.current.intersectObjects(colliders, false);
+          if (hits.length > 0 && hits[0].distance < maxRayLen) {
+            // Pull camera forward in front of hit wall, clearing character shoulders without crossing walls
+            const safeDist = Math.max(0.55, hits[0].distance - 0.35);
+            desiredPos.current.copy(rayOrigin.current).addScaledVector(rayDir.current, safeDist);
+          }
+        }
+      }
+
+      // Clamp height above ground and below indoor ceiling
+      desiredPos.current.y = Math.max(CAMERA_BOUNDS.minHeight, desiredPos.current.y);
+      if (s.currentRoom !== 'exterior' && s.currentRoom !== 'garden') {
+        desiredPos.current.y = Math.min(4.85, desiredPos.current.y);
+      }
+
+      const lookYOffset =
+        s.currentRoom === 'exterior' ? 1.85 : s.currentRoom === 'garden' ? 1.66 : 1.52;
+      lookTarget.current.set(anchorX, anchorY + lookYOffset, anchorZ);
+
+      if (currentPosition.current.distanceTo(desiredPos.current) > 10) {
+        currentPosition.current.copy(desiredPos.current);
+        currentLookAt.current.copy(lookTarget.current);
+      } else {
+        const damp = 1 - Math.exp(-9 * delta);
+        currentPosition.current.lerp(desiredPos.current, damp);
+        currentLookAt.current.lerp(lookTarget.current, 1 - Math.exp(-12 * delta));
+      }
 
       camera.position.copy(currentPosition.current);
-
-      // Look at player
-      const lookTarget = new THREE.Vector3(
-        playerPosition.x,
-        playerPosition.y + PLAYER_HEIGHT * 0.6,
-        playerPosition.z
-      );
-      camera.lookAt(lookTarget);
+      camera.lookAt(currentLookAt.current);
     } else {
-      // First person mode
-      camera.position.set(
-        playerPosition.x,
-        playerPosition.y + PLAYER_HEIGHT * 0.9,
-        playerPosition.z
+      camera.position.set(pPos.x, pPos.y + PLAYER_HEIGHT * 0.9, pPos.z);
+      lookTarget.current.set(
+        pPos.x - Math.sin(s.cameraAngleX),
+        pPos.y + PLAYER_HEIGHT * 0.9 - Math.sin(s.cameraAngleY) * 0.5,
+        pPos.z - Math.cos(s.cameraAngleX)
       );
-
-      const lookDir = new THREE.Vector3(
-        -Math.sin(cameraAngleX),
-        -Math.sin(cameraAngleY) * 0.5,
-        -Math.cos(cameraAngleX)
-      );
-      camera.lookAt(camera.position.clone().add(lookDir));
+      camera.lookAt(lookTarget.current);
     }
   });
 

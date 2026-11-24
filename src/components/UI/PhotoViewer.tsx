@@ -1,11 +1,38 @@
+import { useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
+import { getMemoryArtworkDataUrl } from '../../utils/memoryArt';
+import { COLORS } from '../../utils/constants';
 
 export default function PhotoViewer() {
-  const { showPhotoViewer, currentPhoto, currentPhotoMessage, setCurrentPhoto } =
-    useGameStore();
+  const showPhotoViewer = useGameStore((s) => s.showPhotoViewer);
+  const currentPhoto = useGameStore((s) => s.currentPhoto);
+  const currentPhotoMessage = useGameStore((s) => s.currentPhotoMessage);
+  const activeMemory = useGameStore((s) => s.activeMemory);
+  const setCurrentPhoto = useGameStore((s) => s.setCurrentPhoto);
+
+  const artworkUrl = useMemo(() => {
+    if (!activeMemory) return '';
+    return getMemoryArtworkDataUrl(activeMemory);
+  }, [activeMemory]);
+
+  useEffect(() => {
+    if (!showPhotoViewer) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCurrentPhoto(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showPhotoViewer, setCurrentPhoto]);
 
   if (!showPhotoViewer) return null;
+
+  const title = activeMemory?.title ?? 'Cherished Memory';
+  const section = activeMemory?.section ?? 'Our Love Museum';
+  const date = activeMemory?.date ?? '';
+  const description = activeMemory?.description ?? currentPhotoMessage ?? '';
 
   return (
     <AnimatePresence>
@@ -14,119 +41,148 @@ export default function PhotoViewer() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.25 }}
+          data-testid="photo-viewer-modal"
           className="ui-overlay"
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            background: 'rgba(0,0,0,0.9)',
+            inset: 0,
+            background: 'rgba(10, 6, 14, 0.92)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 1000,
-            cursor: 'pointer',
+            padding: '24px 16px',
+            zIndex: 1150,
           }}
           onClick={() => setCurrentPhoto(null)}
         >
-          {/* Photo display */}
           <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
+            initial={{ scale: 0.92, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-            style={{
-              position: 'relative',
-              maxWidth: '80vw',
-              maxHeight: '70vh',
-            }}
+            exit={{ scale: 0.92, opacity: 0 }}
+            transition={{ duration: 0.25 }}
             onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(92vw, 720px)',
+              background: 'rgba(26, 16, 30, 0.96)',
+              border: `1px solid ${COLORS.gold}`,
+              borderRadius: 16,
+              padding: 20,
+              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.7)',
+              fontFamily: 'Georgia, serif',
+              color: '#f8f2e6',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+            }}
           >
-            {/* Frame border */}
+            {/* Header */}
             <div
               style={{
-                padding: 12,
-                background: 'linear-gradient(135deg, #c8a55a, #e8d58a, #c8a55a)',
-                borderRadius: 4,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+                width: '100%',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 14,
+                gap: 12,
               }}
             >
-              {/* Inner mat */}
-              <div
-                style={{
-                  padding: 20,
-                  background: '#faf8f5',
-                }}
-              >
-                {/* Photo placeholder (shows colored rectangle since we don't have real photos) */}
+              <div>
                 <div
                   style={{
-                    width: '60vw',
-                    maxWidth: 600,
-                    height: '45vh',
-                    maxHeight: 450,
-                    background: 'linear-gradient(135deg, #e8a0b0, #d4a5b5, #c8a0c0)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: 2,
+                    fontSize: 11,
+                    letterSpacing: 1.4,
+                    textTransform: 'uppercase',
+                    color: COLORS.gold,
+                    marginBottom: 4,
                   }}
                 >
-                  <div style={{
-                    textAlign: 'center',
-                    color: '#fff',
-                    textShadow: '0 2px 10px rgba(0,0,0,0.3)',
-                  }}>
-                    <div style={{ fontSize: 48, marginBottom: 10 }}>♡</div>
-                    <div style={{ fontSize: 14, opacity: 0.8 }}>
-                      Place your photo at<br />
-                      <code style={{ fontSize: 12, background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: 3 }}>
-                        {currentPhoto}
-                      </code>
-                    </div>
-                  </div>
+                  {section}
+                  {date ? ` · ${date}` : ''}
                 </div>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: '#fff6e4' }}>
+                  {title}
+                </h2>
               </div>
-            </div>
-          </motion.div>
 
-          {/* Message */}
-          {currentPhotoMessage && (
-            <motion.p
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.4 }}
+              <button
+                type="button"
+                data-testid="btn-close-photo-viewer"
+                onClick={() => setCurrentPhoto(null)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 20,
+                  background: 'rgba(200, 165, 90, 0.16)',
+                  border: `1px solid ${COLORS.gold}`,
+                  color: '#fff4d6',
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Close ✕
+              </button>
+            </div>
+
+            {/* Framed Enlarged Photograph */}
+            <div
               style={{
-                marginTop: 30,
-                fontSize: 20,
-                color: '#c8a55a',
-                fontStyle: 'italic',
-                textAlign: 'center',
-                fontFamily: 'Georgia, serif',
-                letterSpacing: 1,
+                width: '100%',
+                padding: 8,
+                background: 'linear-gradient(135deg, #c8a55a, #e8d58a, #c8a55a)',
+                borderRadius: 6,
+                marginBottom: 16,
               }}
             >
-              "{currentPhotoMessage}"
-            </motion.p>
-          )}
+              <div style={{ padding: 10, background: '#faf6ee', borderRadius: 2 }}>
+                {artworkUrl ? (
+                  <img
+                    src={artworkUrl}
+                    alt={title}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      maxHeight: '52vh',
+                      objectFit: 'cover',
+                      borderRadius: 2,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      height: 300,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'linear-gradient(135deg, #3a2338, #9c5268)',
+                      color: '#fff',
+                    }}
+                  >
+                    {currentPhoto}
+                  </div>
+                )}
+              </div>
+            </div>
 
-          {/* Close hint */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.5 }}
-            transition={{ delay: 0.6 }}
-            style={{
-              position: 'absolute',
-              bottom: 30,
-              color: '#fff',
-              fontSize: 14,
-            }}
-          >
-            Click anywhere to close
-          </motion.p>
+            {/* Description */}
+            {description && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  lineHeight: 1.6,
+                  color: '#ebdfc9',
+                  fontStyle: 'italic',
+                  textAlign: 'center',
+                  maxWidth: 580,
+                }}
+              >
+                "{description}"
+              </p>
+            )}
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>

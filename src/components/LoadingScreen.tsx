@@ -1,11 +1,18 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../store/gameStore';
+import { unlockBackgroundAudio } from '../audio/BackgroundAudioManager';
 
 export default function LoadingScreen() {
-  const { isLoading, setIsLoading } = useGameStore();
+  const isLoading = useGameStore((s) => s.isLoading);
+  const setIsLoading = useGameStore((s) => s.setIsLoading);
+  const textsMap = useGameStore((s) => s.textsMap);
   const [progress, setProgress] = useState(0);
   const [showEnter, setShowEnter] = useState(false);
+
+  const loadingTitle = textsMap.loading_title || 'OUR LOVE';
+  const loadingSubtitle = textsMap.loading_subtitle || 'MUSEUM';
+  const loadingTagline = textsMap.loading_tagline || 'A JOURNEY THROUGH OUR MEMORIES';
 
   useEffect(() => {
     if (!isLoading) return;
@@ -25,8 +32,22 @@ export default function LoadingScreen() {
   }, [isLoading]);
 
   const handleEnter = () => {
+    unlockBackgroundAudio();
     setIsLoading(false);
   };
+
+  useEffect(() => {
+    if (!isLoading || !showEnter) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        unlockBackgroundAudio();
+        setIsLoading(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isLoading, showEnter, setIsLoading]);
 
   if (!isLoading) return null;
 
@@ -103,7 +124,7 @@ export default function LoadingScreen() {
               marginBottom: 8,
               textShadow: '0 0 30px rgba(200,165,90,0.3)',
             }}>
-              OUR LOVE
+              {loadingTitle}
             </h1>
             <h2 style={{
               fontSize: 18,
@@ -112,7 +133,7 @@ export default function LoadingScreen() {
               letterSpacing: 12,
               marginBottom: 50,
             }}>
-              MUSEUM
+              {loadingSubtitle}
             </h2>
           </motion.div>
 
@@ -157,6 +178,7 @@ export default function LoadingScreen() {
               </>
             ) : (
               <motion.button
+                data-start="true"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 whileHover={{ scale: 1.05 }}
@@ -201,7 +223,7 @@ export default function LoadingScreen() {
               letterSpacing: 3,
             }}
           >
-            A JOURNEY THROUGH OUR MEMORIES
+            {loadingTagline}
           </motion.p>
         </motion.div>
       )}

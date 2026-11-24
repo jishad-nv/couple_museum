@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RigidBody } from '@react-three/rapier';
-import { COLORS, WALL_HEIGHT, WALL_THICKNESS } from '../../utils/constants';
+import { COLORS } from '../../utils/constants';
+import { registerCameraCollider, unregisterCameraCollider } from '../../utils/museumLayout';
 
 interface WallProps {
   position: [number, number, number];
@@ -11,6 +12,34 @@ interface WallProps {
   doorPosition?: number;
   doorWidth?: number;
   doorHeight?: number;
+  trimColor?: string;
+}
+
+function ColliderMesh({
+  position = [0, 0, 0],
+  size,
+  color,
+}: {
+  position?: [number, number, number];
+  size: [number, number, number];
+  color: string;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  useEffect(() => {
+    const mesh = meshRef.current;
+    registerCameraCollider(mesh);
+    return () => unregisterCameraCollider(mesh);
+  }, []);
+
+  return (
+    <RigidBody type="fixed" colliders="cuboid" position={position}>
+      <mesh ref={meshRef} castShadow receiveShadow>
+        <boxGeometry args={size} />
+        <meshStandardMaterial color={color} roughness={0.48} />
+      </mesh>
+    </RigidBody>
+  );
 }
 
 export default function Wall({
@@ -19,86 +48,77 @@ export default function Wall({
   color = COLORS.wallWhite,
   hasDoor = false,
   doorPosition = 0,
-  doorWidth = 2.5,
-  doorHeight = 3.5,
+  doorWidth = 2.8,
+  doorHeight = 3.8,
+  trimColor = COLORS.gold,
 }: WallProps) {
   if (hasDoor) {
-    // Split wall into segments around the door
-    const wallWidth = size[0];
+    // Support both X-spanning walls (width > depth) and Z-spanning walls (depth > width)
+    const isZSpanning = size[2] > size[0];
+    const spanLen = isZSpanning ? size[2] : size[0];
     const wallHeight = size[1];
-    const wallDepth = size[2];
+    const wallThick = isZSpanning ? size[0] : size[2];
 
-    const leftWidth = (wallWidth / 2 + doorPosition - doorWidth / 2);
-    const rightWidth = (wallWidth / 2 - doorPosition - doorWidth / 2);
+    const leftLen = spanLen / 2 + doorPosition - doorWidth / 2;
+    const rightLen = spanLen / 2 - doorPosition - doorWidth / 2;
     const topHeight = wallHeight - doorHeight;
+
+    const segPos = (offsetAlongSpan: number, yOffset: number): [number, number, number] =>
+      isZSpanning ? [0, yOffset, offsetAlongSpan] : [offsetAlongSpan, yOffset, 0];
+
+    const segSize = (len: number, h: number): [number, number, number] =>
+      isZSpanning ? [wallThick, h, len] : [len, h, wallThick];
+
+    const jambSize: [number, number, number] = isZSpanning
+      ? [wallThick + 0.06, doorHeight, 0.1]
+      : [0.1, doorHeight, wallThick + 0.06];
+
+    const lintelSize: [number, number, number] = isZSpanning
+      ? [wallThick + 0.06, 0.12, doorWidth + 0.2]
+      : [doorWidth + 0.2, 0.12, wallThick + 0.06];
 
     return (
       <group position={position}>
-        {/* Left segment */}
-        {leftWidth > 0.01 && (
-          <RigidBody type="fixed" colliders="cuboid">
-            <mesh
-              position={[-(wallWidth / 2 - leftWidth / 2), 0, 0]}
-              castShadow
-              receiveShadow
-            >
-              <boxGeometry args={[leftWidth, wallHeight, wallDepth]} />
-              <meshStandardMaterial color={color} roughness={0.4} />
-            </mesh>
-          </RigidBody>
+        {leftLen > 0.02 && (
+          <ColliderMesh
+            position={segPos(-(spanLen / 2 - leftLen / 2), 0)}
+            size={segSize(leftLen, wallHeight)}
+            color={color}
+          />
         )}
 
-        {/* Right segment */}
-        {rightWidth > 0.01 && (
-          <RigidBody type="fixed" colliders="cuboid">
-            <mesh
-              position={[(wallWidth / 2 - rightWidth / 2), 0, 0]}
-              castShadow
-              receiveShadow
-            >
-              <boxGeometry args={[rightWidth, wallHeight, wallDepth]} />
-              <meshStandardMaterial color={color} roughness={0.4} />
-            </mesh>
-          </RigidBody>
+        {rightLen > 0.02 && (
+          <ColliderMesh
+            position={segPos(spanLen / 2 - rightLen / 2, 0)}
+            size={segSize(rightLen, wallHeight)}
+            color={color}
+          />
         )}
 
-        {/* Top segment (above door) */}
-        {topHeight > 0.01 && (
-          <RigidBody type="fixed" colliders="cuboid">
-            <mesh
-              position={[doorPosition, (doorHeight + topHeight / 2 - wallHeight / 2), 0]}
-              castShadow
-              receiveShadow
-            >
-              <boxGeometry args={[doorWidth, topHeight, wallDepth]} />
-              <meshStandardMaterial color={color} roughness={0.4} />
-            </mesh>
-          </RigidBody>
+        {topHeight > 0.02 && (
+          <ColliderMesh
+            position={segPos(doorPosition, doorHeight + topHeight / 2 - wallHeight / 2)}
+            size={segSize(doorWidth, topHeight)}
+            color={color}
+          />
         )}
 
-        {/* Door frame trim */}
-        <mesh position={[doorPosition - doorWidth / 2 - 0.05, doorHeight / 2 - wallHeight / 2, wallDepth / 2 + 0.01]}>
-          <boxGeometry args={[0.08, doorHeight, 0.02]} />
-          <meshStandardMaterial color={COLORS.gold} metalness={0.6} roughness={0.3} />
+        {/* Solid gold door jambs & lintel */}
+        <mesh position={segPos(doorPosition - doorWidth / 2 - 0.05, doorHeight / 2 - wallHeight / 2)}>
+          <boxGeometry args={jambSize} />
+          <meshStandardMaterial color={trimColor} metalness={0.25} roughness={0.35} />
         </mesh>
-        <mesh position={[doorPosition + doorWidth / 2 + 0.05, doorHeight / 2 - wallHeight / 2, wallDepth / 2 + 0.01]}>
-          <boxGeometry args={[0.08, doorHeight, 0.02]} />
-          <meshStandardMaterial color={COLORS.gold} metalness={0.6} roughness={0.3} />
+        <mesh position={segPos(doorPosition + doorWidth / 2 + 0.05, doorHeight / 2 - wallHeight / 2)}>
+          <boxGeometry args={jambSize} />
+          <meshStandardMaterial color={trimColor} metalness={0.25} roughness={0.35} />
         </mesh>
-        <mesh position={[doorPosition, doorHeight - wallHeight / 2 + 0.04, wallDepth / 2 + 0.01]}>
-          <boxGeometry args={[doorWidth + 0.16, 0.08, 0.02]} />
-          <meshStandardMaterial color={COLORS.gold} metalness={0.6} roughness={0.3} />
+        <mesh position={segPos(doorPosition, doorHeight - wallHeight / 2 + 0.06)}>
+          <boxGeometry args={lintelSize} />
+          <meshStandardMaterial color={trimColor} metalness={0.25} roughness={0.35} />
         </mesh>
       </group>
     );
   }
 
-  return (
-    <RigidBody type="fixed" colliders="cuboid" position={position}>
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={size} />
-        <meshStandardMaterial color={color} roughness={0.4} />
-      </mesh>
-    </RigidBody>
-  );
+  return <ColliderMesh position={position} size={size} color={color} />;
 }
