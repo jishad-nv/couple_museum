@@ -28,6 +28,11 @@ export function useInput() {
   const showPhotoViewer = useGameStore((s) => s.showPhotoViewer);
   const showVideoPlayer = useGameStore((s) => s.showVideoPlayer);
   const showLoveAlbum = useGameStore((s) => s.showLoveAlbum);
+  const showProposalModal = useGameStore((s) => s.showProposalModal);
+  const showDoYouLoveMeModal = useGameStore((s) => s.showDoYouLoveMeModal);
+  const showLoveQuizModal = useGameStore((s) => s.showLoveQuizModal);
+  const showPrivateMemoryModal = useGameStore((s) => s.showPrivateMemoryModal);
+  const showSecretLetterModal = useGameStore((s) => s.showSecretLetterModal);
   const showAdminLogin = useGameStore((s) => s.showAdminLogin);
   const showAdminPanel = useGameStore((s) => s.showAdminPanel);
   const isAnyModalOpen =
@@ -35,6 +40,11 @@ export function useInput() {
     showPhotoViewer ||
     showVideoPlayer ||
     showLoveAlbum ||
+    showProposalModal ||
+    showDoYouLoveMeModal ||
+    showLoveQuizModal ||
+    showPrivateMemoryModal ||
+    showSecretLetterModal ||
     showAdminLogin ||
     showAdminPanel;
 
@@ -67,6 +77,11 @@ export function useInput() {
       s.showPhotoViewer ||
       s.showVideoPlayer ||
       s.showLoveAlbum ||
+      s.showProposalModal ||
+      s.showDoYouLoveMeModal ||
+      s.showLoveQuizModal ||
+      s.showPrivateMemoryModal ||
+      s.showSecretLetterModal ||
       s.showAdminLogin ||
       s.showAdminPanel ||
       isTypingInForm(e.target)
@@ -165,6 +180,11 @@ export function useInput() {
       s.showPhotoViewer ||
       s.showVideoPlayer ||
       s.showLoveAlbum ||
+      s.showProposalModal ||
+      s.showDoYouLoveMeModal ||
+      s.showLoveQuizModal ||
+      s.showPrivateMemoryModal ||
+      s.showSecretLetterModal ||
       s.showAdminLogin ||
       s.showAdminPanel
     ) {

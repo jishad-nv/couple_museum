@@ -3,14 +3,23 @@ import { useGameStore } from '../../store/gameStore';
 import {
   createAdminMusicTrack,
   createAdminPhoto,
+  createAdminPrivateMemory,
+  createAdminQuizQuestion,
   createAdminVideo,
   deleteAdminMusicTrack,
   deleteAdminPhoto,
+  deleteAdminPrivateMemory,
+  deleteAdminQuizQuestion,
   deleteAdminVideo,
   reorderAdminMusicTracks,
   reorderAdminPhotos,
+  reorderAdminPrivateMemories,
+  reorderAdminQuizQuestions,
+  resetAdminSecretProgress,
   updateAdminMusicTrack,
   updateAdminPhoto,
+  updateAdminPrivateMemory,
+  updateAdminQuizQuestion,
   updateAdminSettings,
   updateAdminTexts,
   updateAdminVideo,
@@ -27,9 +36,15 @@ import type {
   MusicZoneTarget,
   PhotoRoomTarget,
 } from '../../utils/museumContentTypes';
+import type {
+  PrivateMemoryItem,
+  PrivateMemoryKind,
+  QuizOptionKey,
+  SecretQuizQuestion,
+} from '../../utils/secretMystery';
 import { COLORS } from '../../utils/constants';
 
-type AdminTab = 'photos' | 'videos' | 'texts' | 'music' | 'settings';
+type AdminTab = 'photos' | 'videos' | 'texts' | 'music' | 'quiz' | 'private' | 'settings';
 
 const PHOTO_SECTIONS: MemorySection[] = [
   'Our First Memories',
@@ -374,9 +389,14 @@ export default function AdminPanel() {
   const texts = useGameStore((s) => s.texts);
   const musicTracks = useGameStore((s) => s.musicTracks);
   const museumSettings = useGameStore((s) => s.museumSettings);
+  const secretQuiz = useGameStore((s) => s.secretQuiz);
+  const privateMemories = useGameStore((s) => s.privateMemories);
+  const secretProgress = useGameStore((s) => s.secretProgress);
 
   const setShowAdminPanel = useGameStore((s) => s.setShowAdminPanel);
   const setShowLoveAlbum = useGameStore((s) => s.setShowLoveAlbum);
+  const setShowLoveQuizModal = useGameStore((s) => s.setShowLoveQuizModal);
+  const openPrivateMemory = useGameStore((s) => s.openPrivateMemory);
   const applyMuseumBundle = useGameStore((s) => s.applyMuseumBundle);
   const loadMuseumContent = useGameStore((s) => s.loadMuseumContent);
   const signOutAdmin = useGameStore((s) => s.signOutAdmin);
@@ -417,6 +437,28 @@ export default function AdminPanel() {
   const [newTrackFile, setNewTrackFile] = useState<File | null>(null);
   const [newTrackPreview, setNewTrackPreview] = useState<string | null>(null);
   const [creatingTrack, setCreatingTrack] = useState(false);
+
+  // Secret Quiz state
+  const [newQuizQuestion, setNewQuizQuestion] = useState('');
+  const [newQuizDescription, setNewQuizDescription] = useState('');
+  const [newQuizOptA, setNewQuizOptA] = useState('');
+  const [newQuizOptB, setNewQuizOptB] = useState('');
+  const [newQuizOptC, setNewQuizOptC] = useState('');
+  const [newQuizOptD, setNewQuizOptD] = useState('');
+  const [newQuizCorrect, setNewQuizCorrect] = useState<QuizOptionKey>('A');
+  const [creatingQuiz, setCreatingQuiz] = useState(false);
+  const [resettingProgress, setResettingProgress] = useState(false);
+
+  // Private Memories state
+  const [newPrivKind, setNewPrivKind] = useState<PrivateMemoryKind>('letter');
+  const [newPrivTitle, setNewPrivTitle] = useState('');
+  const [newPrivSubtitle, setNewPrivSubtitle] = useState('');
+  const [newPrivDate, setNewPrivDate] = useState('Private Date');
+  const [newPrivCode, setNewPrivCode] = useState('');
+  const [newPrivBody, setNewPrivBody] = useState('');
+  const [newPrivMotif, setNewPrivMotif] = useState<MemoryMotif>('roses');
+  const [newPrivFile, setNewPrivFile] = useState<File | null>(null);
+  const [creatingPriv, setCreatingPriv] = useState(false);
 
   useEffect(() => {
     const map: Record<string, string> = {};
@@ -709,6 +751,8 @@ export default function AdminPanel() {
               ['videos', `Videos (${videos.length})`],
               ['texts', 'Museum Text'],
               ['music', `Music (${musicTracks.length})`],
+              ['quiz', `Secret Quiz (${secretQuiz.length})`],
+              ['private', `Private Chamber (${privateMemories.length})`],
               ['settings', 'Album & Settings'],
             ] as const
           ).map(([id, label]) => {
@@ -1363,6 +1407,337 @@ export default function AdminPanel() {
               </div>
             </div>
           )}
+
+          {/* ─── TAB F: SECRET ROOM QUIZ MASTER & PROGRESS ─── */}
+          {tab === 'quiz' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Visitor Progress & Live Quiz Preview */}
+              <div
+                style={{
+                  background: 'rgba(255, 250, 240, 0.04)',
+                  border: '1px solid rgba(200, 165, 90, 0.28)',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15, color: COLORS.goldLight }}>
+                      Secret Room Mystery Progress & Preview
+                    </h3>
+                    <div style={{ fontSize: 12, color: '#d7c39c', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <span>Yes Confirmed: {secretProgress.yesConfirmed ? '✓' : '—'}</span>
+                      <span>Quiz Passed: {secretProgress.quizCompleted ? '✓' : '—'}</span>
+                      <span>Key Collected: {secretProgress.keyCollected ? '✓' : '—'}</span>
+                      <span>Secret Door: {secretProgress.secretDoorUnlocked ? '✓' : '—'}</span>
+                      <span>2nd Door Open: {secretProgress.secondDoorUnlocked ? '✓' : '—'}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      data-testid="btn-admin-preview-quiz"
+                      onClick={() => {
+                        setShowAdminPanel(false);
+                        setShowLoveQuizModal(true, true);
+                      }}
+                      style={goldBtnStyle}
+                    >
+                      Preview Full Quiz ✦
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="btn-admin-reset-secret-progress"
+                      disabled={resettingProgress}
+                      onClick={async () => {
+                        setResettingProgress(true);
+                        try {
+                          const bundle = await resetAdminSecretProgress(adminToken);
+                          applyMuseumBundle(bundle);
+                          notify('Reset Secret Room visitor progress back to locked start state.');
+                        } catch (err) {
+                          notify(err instanceof Error ? err.message : 'Reset failed.', true);
+                        } finally {
+                          setResettingProgress(false);
+                        }
+                      }}
+                      style={dangerBtnStyle}
+                    >
+                      {resettingProgress ? 'Resetting…' : 'Reset Visitor Progress'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add Quiz Question Form */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newQuizQuestion.trim() || !newQuizOptA.trim() || !newQuizOptB.trim() || !newQuizOptC.trim() || !newQuizOptD.trim()) {
+                    notify('Please enter the question and all four options A–D.', true);
+                    return;
+                  }
+                  setCreatingQuiz(true);
+                  try {
+                    const bundle = await createAdminQuizQuestion(adminToken, {
+                      question: newQuizQuestion.trim(),
+                      description: newQuizDescription.trim(),
+                      options: {
+                        A: newQuizOptA.trim(),
+                        B: newQuizOptB.trim(),
+                        C: newQuizOptC.trim(),
+                        D: newQuizOptD.trim(),
+                      },
+                      correctOption: newQuizCorrect,
+                    });
+                    applyMuseumBundle(bundle);
+                    setNewQuizQuestion('');
+                    setNewQuizDescription('');
+                    setNewQuizOptA('');
+                    setNewQuizOptB('');
+                    setNewQuizOptC('');
+                    setNewQuizOptD('');
+                    setNewQuizCorrect('A');
+                    notify('Added new Love Quiz question.');
+                  } catch (err) {
+                    notify(err instanceof Error ? err.message : 'Failed to create question.', true);
+                  } finally {
+                    setCreatingQuiz(false);
+                  }
+                }}
+                style={{
+                  background: 'rgba(255, 250, 240, 0.04)',
+                  border: '1px solid rgba(200, 165, 90, 0.28)',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: 15, color: COLORS.goldLight }}>
+                  Add Personalized Love Quiz Question
+                </h3>
+                <input
+                  data-testid="input-new-quiz-question"
+                  placeholder="Question prompt (e.g. What is my favorite colour?)"
+                  value={newQuizQuestion}
+                  onChange={(e) => setNewQuizQuestion(e.target.value)}
+                  style={panelInputStyle}
+                />
+                <input
+                  placeholder="Optional hint or sweet description"
+                  value={newQuizDescription}
+                  onChange={(e) => setNewQuizDescription(e.target.value)}
+                  style={panelInputStyle}
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8 }}>
+                  <input data-testid="input-new-quiz-opt-a" placeholder="Option A" value={newQuizOptA} onChange={(e) => setNewQuizOptA(e.target.value)} style={panelInputStyle} />
+                  <input data-testid="input-new-quiz-opt-b" placeholder="Option B" value={newQuizOptB} onChange={(e) => setNewQuizOptB(e.target.value)} style={panelInputStyle} />
+                  <input data-testid="input-new-quiz-opt-c" placeholder="Option C" value={newQuizOptC} onChange={(e) => setNewQuizOptC(e.target.value)} style={panelInputStyle} />
+                  <input data-testid="input-new-quiz-opt-d" placeholder="Option D" value={newQuizOptD} onChange={(e) => setNewQuizOptD(e.target.value)} style={panelInputStyle} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <label style={{ fontSize: 12, color: '#e8d7b3', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Preferred Answer:
+                    <select
+                      value={newQuizCorrect}
+                      onChange={(e) => setNewQuizCorrect(e.target.value as QuizOptionKey)}
+                      style={{ ...panelInputStyle, width: 80 }}
+                    >
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                    </select>
+                  </label>
+                  <button
+                    type="submit"
+                    data-testid="btn-admin-add-quiz"
+                    disabled={creatingQuiz}
+                    style={goldBtnStyle}
+                  >
+                    {creatingQuiz ? 'Publishing…' : 'Publish Quiz Question'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Existing Questions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {secretQuiz.map((q, idx) => (
+                  <QuizQuestionCard
+                    key={q.id}
+                    question={q}
+                    index={idx}
+                    total={secretQuiz.length}
+                    token={adminToken}
+                    onSaved={applyMuseumBundle}
+                    onStatus={notify}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ─── TAB G: OUR PRIVATE MEMORIES CHAMBER ─── */}
+          {tab === 'private' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newPrivTitle.trim()) {
+                    notify('Please enter a title for the private memory.', true);
+                    return;
+                  }
+                  if (!newPrivBody.trim() && !newPrivFile) {
+                    notify('Please enter a message or upload a photograph.', true);
+                    return;
+                  }
+                  setCreatingPriv(true);
+                  try {
+                    let photoSrc = '';
+                    if (newPrivFile) {
+                      const uploaded = await uploadAdminMedia(adminToken, 'photos', newPrivFile);
+                      photoSrc = uploaded.url;
+                    }
+                    const bundle = await createAdminPrivateMemory(adminToken, {
+                      kind: newPrivKind,
+                      title: newPrivTitle.trim(),
+                      subtitle: newPrivSubtitle.trim() || 'Private Chamber Keepsake',
+                      dateLabel: newPrivDate.trim() || 'Timeless Memory',
+                      body: newPrivBody.trim(),
+                      secretCode: newPrivCode.trim(),
+                      photoSrc,
+                      palette: ['#3b182c', '#8b2252', '#e8c488'],
+                      motif: newPrivMotif,
+                    });
+                    applyMuseumBundle(bundle);
+                    setNewPrivTitle('');
+                    setNewPrivSubtitle('');
+                    setNewPrivCode('');
+                    setNewPrivBody('');
+                    setNewPrivFile(null);
+                    notify(`Published “${newPrivTitle.trim()}” to Our Private Memories.`);
+                  } catch (err) {
+                    notify(err instanceof Error ? err.message : 'Failed to create private memory.', true);
+                  } finally {
+                    setCreatingPriv(false);
+                  }
+                }}
+                style={{
+                  background: 'rgba(255, 250, 240, 0.04)',
+                  border: '1px solid rgba(200, 165, 90, 0.28)',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: 15, color: COLORS.goldLight }}>
+                  Add Private Memory, Letter, Code or Board Display
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
+                  <select
+                    data-testid="select-new-priv-kind"
+                    value={newPrivKind}
+                    onChange={(e) => setNewPrivKind(e.target.value as PrivateMemoryKind)}
+                    style={panelInputStyle}
+                  >
+                    <option value="photo">Private Photograph</option>
+                    <option value="letter">Hidden Love Letter</option>
+                    <option value="message">Saved Text / Message</option>
+                    <option value="code">Secret Code Display</option>
+                    <option value="board">Central Memory Board</option>
+                  </select>
+                  <input
+                    data-testid="input-new-priv-title"
+                    placeholder="Title"
+                    value={newPrivTitle}
+                    onChange={(e) => setNewPrivTitle(e.target.value)}
+                    style={panelInputStyle}
+                  />
+                  <input
+                    placeholder="Subtitle / Category"
+                    value={newPrivSubtitle}
+                    onChange={(e) => setNewPrivSubtitle(e.target.value)}
+                    style={panelInputStyle}
+                  />
+                  <input
+                    placeholder="Special Date Label"
+                    value={newPrivDate}
+                    onChange={(e) => setNewPrivDate(e.target.value)}
+                    style={panelInputStyle}
+                  />
+                  <input
+                    data-testid="input-new-priv-code"
+                    placeholder="Secret Code (optional)"
+                    value={newPrivCode}
+                    onChange={(e) => setNewPrivCode(e.target.value)}
+                    style={panelInputStyle}
+                  />
+                  <select
+                    value={newPrivMotif}
+                    onChange={(e) => setNewPrivMotif(e.target.value as MemoryMotif)}
+                    style={panelInputStyle}
+                  >
+                    {PHOTO_MOTIFS.map((m) => (
+                      <option key={m} value={m}>
+                        Motif: {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <textarea
+                  data-testid="input-new-priv-body"
+                  rows={3}
+                  placeholder="Write private message, love letter prose, or milestone text..."
+                  value={newPrivBody}
+                  onChange={(e) => setNewPrivBody(e.target.value)}
+                  style={{ ...panelInputStyle, resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <label style={{ fontSize: 12, color: '#e8d7b3' }}>
+                    Attach Photo (optional):{' '}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(e) => setNewPrivFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    data-testid="btn-admin-add-priv"
+                    disabled={creatingPriv}
+                    style={goldBtnStyle}
+                  >
+                    {creatingPriv ? 'Publishing…' : 'Publish Private Memory'}
+                  </button>
+                </div>
+              </form>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {privateMemories.map((item, idx) => (
+                  <PrivateMemoryCard
+                    key={item.id}
+                    item={item}
+                    index={idx}
+                    total={privateMemories.length}
+                    token={adminToken}
+                    onSaved={applyMuseumBundle}
+                    onPreview={(pm) => {
+                      setShowAdminPanel(false);
+                      openPrivateMemory(pm);
+                    }}
+                    onStatus={notify}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1633,6 +2008,371 @@ function MusicTrackCard({
             Save
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function QuizQuestionCard({
+  question,
+  index,
+  total,
+  token,
+  onSaved,
+  onStatus,
+}: {
+  question: SecretQuizQuestion;
+  index: number;
+  total: number;
+  token: string;
+  onSaved: (bundle: Awaited<ReturnType<typeof updateAdminQuizQuestion>>) => void;
+  onStatus: (msg: string, error?: boolean) => void;
+}) {
+  const [prompt, setPrompt] = useState(question.question);
+  const [desc, setDesc] = useState(question.description);
+  const [optA, setOptA] = useState(question.options.A);
+  const [optB, setOptB] = useState(question.options.B);
+  const [optC, setOptC] = useState(question.options.C);
+  const [optD, setOptD] = useState(question.options.D);
+  const [correct, setCorrect] = useState<QuizOptionKey>(question.correctOption);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setPrompt(question.question);
+    setDesc(question.description);
+    setOptA(question.options.A);
+    setOptB(question.options.B);
+    setOptC(question.options.C);
+    setOptD(question.options.D);
+    setCorrect(question.correctOption);
+  }, [question]);
+
+  return (
+    <div
+      data-testid={`admin-quiz-row-${question.id}`}
+      style={{
+        background: 'rgba(255, 250, 240, 0.04)',
+        border: '1px solid rgba(200, 165, 90, 0.25)',
+        borderRadius: 10,
+        padding: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <strong style={{ color: COLORS.goldLight, fontSize: 13 }}>
+          Question {index + 1} · Preferred: {correct}
+        </strong>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            disabled={index === 0 || busy}
+            onClick={async () => {
+              const ids = useGameStore.getState().secretQuiz.map((q) => q.id);
+              const idx = ids.indexOf(question.id);
+              if (idx > 0) {
+                [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
+                const bundle = await reorderAdminQuizQuestions(token, ids);
+                onSaved(bundle);
+              }
+            }}
+            style={{ ...subtleBtnStyle, opacity: index === 0 ? 0.4 : 1 }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={index === total - 1 || busy}
+            onClick={async () => {
+              const ids = useGameStore.getState().secretQuiz.map((q) => q.id);
+              const idx = ids.indexOf(question.id);
+              if (idx >= 0 && idx < ids.length - 1) {
+                [ids[idx + 1], ids[idx]] = [ids[idx], ids[idx + 1]];
+                const bundle = await reorderAdminQuizQuestions(token, ids);
+                onSaved(bundle);
+              }
+            }}
+            style={{ ...subtleBtnStyle, opacity: index === total - 1 ? 0.4 : 1 }}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            disabled={total <= 1 || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const bundle = await deleteAdminQuizQuestion(token, question.id);
+                onSaved(bundle);
+                onStatus('Deleted quiz question.');
+              } catch (err) {
+                onStatus(err instanceof Error ? err.message : 'Delete failed.', true);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{ ...dangerBtnStyle, opacity: total <= 1 ? 0.4 : 1 }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Question" style={panelInputStyle} />
+      <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description / Hint" style={panelInputStyle} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
+        <input value={optA} onChange={(e) => setOptA(e.target.value)} placeholder="Option A" style={panelInputStyle} />
+        <input value={optB} onChange={(e) => setOptB(e.target.value)} placeholder="Option B" style={panelInputStyle} />
+        <input value={optC} onChange={(e) => setOptC(e.target.value)} placeholder="Option C" style={panelInputStyle} />
+        <input value={optD} onChange={(e) => setOptD(e.target.value)} placeholder="Option D" style={panelInputStyle} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, color: '#e8d7b3', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Preferred Answer:
+          <select
+            value={correct}
+            onChange={(e) => setCorrect(e.target.value as QuizOptionKey)}
+            style={{ ...panelInputStyle, width: 76 }}
+          >
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          data-testid={`btn-save-quiz-${question.id}`}
+          disabled={busy}
+          onClick={async () => {
+            if (!prompt.trim() || !optA.trim() || !optB.trim() || !optC.trim() || !optD.trim()) {
+              onStatus('Question and all 4 options are required.', true);
+              return;
+            }
+            setBusy(true);
+            try {
+              const bundle = await updateAdminQuizQuestion(token, question.id, {
+                question: prompt.trim(),
+                description: desc.trim(),
+                options: {
+                  A: optA.trim(),
+                  B: optB.trim(),
+                  C: optC.trim(),
+                  D: optD.trim(),
+                },
+                correctOption: correct,
+              });
+              onSaved(bundle);
+              onStatus(`Saved Question ${index + 1}.`);
+            } catch (err) {
+              onStatus(err instanceof Error ? err.message : 'Failed to save question.', true);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          style={goldBtnStyle}
+        >
+          Save Question
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PrivateMemoryCard({
+  item,
+  index,
+  total,
+  token,
+  onSaved,
+  onPreview,
+  onStatus,
+}: {
+  item: PrivateMemoryItem;
+  index: number;
+  total: number;
+  token: string;
+  onSaved: (bundle: Awaited<ReturnType<typeof updateAdminPrivateMemory>>) => void;
+  onPreview: (item: PrivateMemoryItem) => void;
+  onStatus: (msg: string, error?: boolean) => void;
+}) {
+  const [kind, setKind] = useState<PrivateMemoryKind>(item.kind);
+  const [title, setTitle] = useState(item.title);
+  const [subtitle, setSubtitle] = useState(item.subtitle);
+  const [dateLabel, setDateLabel] = useState(item.dateLabel);
+  const [secretCode, setSecretCode] = useState(item.secretCode);
+  const [body, setBody] = useState(item.body);
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setKind(item.kind);
+    setTitle(item.title);
+    setSubtitle(item.subtitle);
+    setDateLabel(item.dateLabel);
+    setSecretCode(item.secretCode);
+    setBody(item.body);
+  }, [item]);
+
+  return (
+    <div
+      data-testid={`admin-priv-row-${item.id}`}
+      style={{
+        background: 'rgba(255, 250, 240, 0.04)',
+        border: '1px solid rgba(200, 165, 90, 0.25)',
+        borderRadius: 10,
+        padding: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {item.photoSrc && (
+            <img
+              src={item.photoSrc}
+              alt={item.title}
+              style={{ width: 52, height: 42, objectFit: 'cover', borderRadius: 6 }}
+            />
+          )}
+          <div>
+            <strong style={{ color: '#fff5dd', fontSize: 13.5 }}>{item.title}</strong>
+            <div style={{ fontSize: 11, color: '#d7c39c' }}>
+              {item.kind.toUpperCase()} · {item.dateLabel}
+              {item.secretCode ? ` · Code: ${item.secretCode}` : ''}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => onPreview(item)} style={subtleBtnStyle}>
+            Preview
+          </button>
+          <button
+            type="button"
+            disabled={index === 0 || busy}
+            onClick={async () => {
+              const ids = useGameStore.getState().privateMemories.map((p) => p.id);
+              const idx = ids.indexOf(item.id);
+              if (idx > 0) {
+                [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
+                const bundle = await reorderAdminPrivateMemories(token, ids);
+                onSaved(bundle);
+              }
+            }}
+            style={{ ...subtleBtnStyle, opacity: index === 0 ? 0.4 : 1 }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={index === total - 1 || busy}
+            onClick={async () => {
+              const ids = useGameStore.getState().privateMemories.map((p) => p.id);
+              const idx = ids.indexOf(item.id);
+              if (idx >= 0 && idx < ids.length - 1) {
+                [ids[idx + 1], ids[idx]] = [ids[idx], ids[idx + 1]];
+                const bundle = await reorderAdminPrivateMemories(token, ids);
+                onSaved(bundle);
+              }
+            }}
+            style={{ ...subtleBtnStyle, opacity: index === total - 1 ? 0.4 : 1 }}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const bundle = await deleteAdminPrivateMemory(token, item.id);
+                onSaved(bundle);
+                onStatus(`Removed “${item.title}”.`);
+              } catch (err) {
+                onStatus(err instanceof Error ? err.message : 'Unable to delete.', true);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={dangerBtnStyle}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 8 }}>
+        <select value={kind} onChange={(e) => setKind(e.target.value as PrivateMemoryKind)} style={panelInputStyle}>
+          <option value="photo">Private Photograph</option>
+          <option value="letter">Hidden Love Letter</option>
+          <option value="message">Saved Text / Message</option>
+          <option value="code">Secret Code Display</option>
+          <option value="board">Central Memory Board</option>
+        </select>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" style={panelInputStyle} />
+        <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Subtitle" style={panelInputStyle} />
+        <input value={dateLabel} onChange={(e) => setDateLabel(e.target.value)} placeholder="Date Label" style={panelInputStyle} />
+        <input value={secretCode} onChange={(e) => setSecretCode(e.target.value)} placeholder="Secret Code" style={panelInputStyle} />
+      </div>
+
+      <textarea
+        rows={2}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Message / letter / keepsake text"
+        style={{ ...panelInputStyle, resize: 'vertical' }}
+      />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <label style={{ fontSize: 11.5, color: '#e8d7b3' }}>
+          Replace Photo:{' '}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => setReplaceFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        <button
+          type="button"
+          data-testid={`btn-save-priv-${item.id}`}
+          disabled={busy}
+          onClick={async () => {
+            if (!title.trim()) {
+              onStatus('Title cannot be empty.', true);
+              return;
+            }
+            setBusy(true);
+            try {
+              let photoSrc = item.photoSrc;
+              if (replaceFile) {
+                const uploaded = await uploadAdminMedia(token, 'photos', replaceFile);
+                photoSrc = uploaded.url;
+              }
+              const bundle = await updateAdminPrivateMemory(token, item.id, {
+                kind,
+                title: title.trim(),
+                subtitle: subtitle.trim(),
+                dateLabel: dateLabel.trim(),
+                secretCode: secretCode.trim(),
+                body: body.trim(),
+                photoSrc,
+              });
+              onSaved(bundle);
+              setReplaceFile(null);
+              onStatus(`Saved “${title.trim()}”.`);
+            } catch (err) {
+              onStatus(err instanceof Error ? err.message : 'Failed to save.', true);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          style={goldBtnStyle}
+        >
+          Save Memory
+        </button>
       </div>
     </div>
   );

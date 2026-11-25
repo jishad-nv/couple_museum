@@ -30,6 +30,7 @@ export default function PhotoFrame({
   const [isNear, setIsNear] = useState(false);
 
   const openMemory = useGameStore((s) => s.openMemory);
+  const openAlbumFromMemory = useGameStore((s) => s.openAlbumFromMemory);
 
   const texture = useMemo(() => createMemoryCanvasTexture(memory), [memory]);
 
@@ -69,9 +70,23 @@ export default function PhotoFrame({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat || e.code !== 'KeyE') return;
       const s = useGameStore.getState();
-      if (s.showPhotoViewer || s.showGuestbookModal || s.showVideoPlayer) return;
+      if (
+        s.showPhotoViewer ||
+        s.showGuestbookModal ||
+        s.showVideoPlayer ||
+        s.showLoveAlbum ||
+        s.showSecretLetterModal ||
+        s.showAdminLogin ||
+        s.showAdminPanel
+      ) {
+        return;
+      }
       if (s.nearbyMemory?.id === memory.id) {
-        s.openMemory(memory);
+        if (s.currentRoom === 'garden') {
+          s.openAlbumFromMemory(memory);
+        } else {
+          s.openMemory(memory);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -84,8 +99,12 @@ export default function PhotoFrame({
   }, [memory]);
 
   const handleClick = useCallback(() => {
-    openMemory(memory);
-  }, [memory, openMemory]);
+    if (useGameStore.getState().currentRoom === 'garden') {
+      openAlbumFromMemory(memory);
+    } else {
+      openMemory(memory);
+    }
+  }, [memory, openMemory, openAlbumFromMemory]);
 
   const frameRim = hanging ? 0.065 : 0.18;
   const matBorder = hanging ? 0.025 : 0.06;

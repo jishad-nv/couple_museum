@@ -20,6 +20,16 @@ import {
   type MusicZoneTarget,
   type PhotoRoomTarget,
 } from '../src/utils/museumContentTypes.ts';
+import {
+  DEFAULT_PRIVATE_MEMORIES,
+  DEFAULT_SECRET_PROGRESS,
+  DEFAULT_SECRET_QUIZ_QUESTIONS,
+  type PrivateMemoryItem,
+  type PrivateMemoryKind,
+  type QuizOptionKey,
+  type SecretMysteryProgress,
+  type SecretQuizQuestion,
+} from '../src/utils/secretMystery.ts';
 
 export interface AdminUserRecord {
   id: string;
@@ -50,9 +60,19 @@ const VALID_MOTIFS = new Set<MemoryMotif>([
   'arch',
 ]);
 
-const VALID_ROOM_TARGETS = new Set<PhotoRoomTarget>(['gallery', 'garden', 'album']);
-const VALID_MUSIC_ZONES = new Set<MusicZoneTarget>(['gallery', 'theatre', 'garden', 'dance', 'playlist']);
+const VALID_ROOM_TARGETS = new Set<PhotoRoomTarget>(['gallery', 'garden', 'album', 'secret']);
+const VALID_MUSIC_ZONES = new Set<MusicZoneTarget>([
+  'gallery',
+  'theatre',
+  'garden',
+  'dance',
+  'secret',
+  'wedding',
+  'playlist',
+]);
 const VALID_STAMPS = new Set<MuseumGuestbookEntry['stamp']>(['♡', '✦', '❀', '★']);
+const VALID_QUIZ_OPTIONS = new Set<QuizOptionKey>(['A', 'B', 'C', 'D']);
+const VALID_PRIVATE_KINDS = new Set<PrivateMemoryKind>(['photo', 'letter', 'message', 'board', 'code']);
 
 export class MuseumDatabase {
   private readonly db: DatabaseSync;
@@ -148,7 +168,54 @@ export class MuseumDatabase {
         stamp TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS secret_quiz_questions (
+        id TEXT PRIMARY KEY,
+        question TEXT NOT NULL,
+        description TEXT NOT NULL,
+        opt_a TEXT NOT NULL,
+        opt_b TEXT NOT NULL,
+        opt_c TEXT NOT NULL,
+        opt_d TEXT NOT NULL,
+        correct_option TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS private_memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        subtitle TEXT NOT NULL,
+        date_label TEXT NOT NULL,
+        body TEXT NOT NULL,
+        secret_code TEXT NOT NULL,
+        photo_src TEXT NOT NULL,
+        palette_json TEXT NOT NULL,
+        motif TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS secret_progress (
+        id TEXT PRIMARY KEY,
+        yes_confirmed INTEGER NOT NULL DEFAULT 0,
+        quiz_completed INTEGER NOT NULL DEFAULT 0,
+        key_collected INTEGER NOT NULL DEFAULT 0,
+        secret_door_unlocked INTEGER NOT NULL DEFAULT 0,
+        second_door_unlocked INTEGER NOT NULL DEFAULT 0,
+        chamber_discovered INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
     `);
+
+    // Safe migration for pre-existing databases lacking secret_door_unlocked
+    const cols = this.db.prepare('PRAGMA table_info(secret_progress)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'secret_door_unlocked')) {
+      this.db.exec(
+        'ALTER TABLE secret_progress ADD COLUMN secret_door_unlocked INTEGER NOT NULL DEFAULT 0;'
+      );
+    }
   }
 
   private seedDefaults(): void {
@@ -268,6 +335,63 @@ export class MuseumDatabase {
         now - 21 * 60 * 60 * 1000
       );
     }
+
+    const quizCount = (
+      this.db.prepare('SELECT COUNT(*) AS count FROM secret_quiz_questions').get() as { count: number }
+    ).count;
+    if (quizCount === 0) {
+      const insertQuiz = this.db.prepare(`
+        INSERT INTO secret_quiz_questions (id, question, description, opt_a, opt_b, opt_c, opt_d, correct_option, sort_order, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const q of DEFAULT_SECRET_QUIZ_QUESTIONS) {
+        insertQuiz.run(
+          q.id,
+          q.question,
+          q.description,
+          q.options.A,
+          q.options.B,
+          q.options.C,
+          q.options.D,
+          q.correctOption,
+          q.sortOrder,
+          now
+        );
+      }
+    }
+
+    const privCount = (
+      this.db.prepare('SELECT COUNT(*) AS count FROM private_memories').get() as { count: number }
+    ).count;
+    if (privCount === 0) {
+      const insertPriv = this.db.prepare(`
+        INSERT INTO private_memories (id, kind, title, subtitle, date_label, body, secret_code, photo_src, palette_json, motif, sort_order, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const pm of DEFAULT_PRIVATE_MEMORIES) {
+        insertPriv.run(
+          pm.id,
+          pm.kind,
+          pm.title,
+          pm.subtitle,
+          pm.dateLabel,
+          pm.body,
+          pm.secretCode,
+          pm.photoSrc,
+          JSON.stringify(pm.palette),
+          pm.motif,
+          pm.sortOrder,
+          now
+        );
+      }
+    }
+
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO secret_progress (id, yes_confirmed, quiz_completed, key_collected, second_door_unlocked, chamber_discovered, updated_at)
+         VALUES ('default', 0, 0, 0, 0, 0, ?)`
+      )
+      .run(now);
   }
 
   // ─── Admin Auth & Revocation ───────────────────────────────────────────────
@@ -507,6 +631,116 @@ export class MuseumDatabase {
     }));
   }
 
+  getSecretQuiz(): SecretQuizQuestion[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, question, description, opt_a, opt_b, opt_c, opt_d, correct_option, sort_order FROM secret_quiz_questions ORDER BY sort_order ASC, updated_at ASC'
+      )
+      .all() as Array<{
+      id: string;
+      question: string;
+      description: string;
+      opt_a: string;
+      opt_b: string;
+      opt_c: string;
+      opt_d: string;
+      correct_option: string;
+      sort_order: number;
+    }>;
+
+    return rows.map((r) => ({
+      id: r.id,
+      question: r.question,
+      description: r.description,
+      options: {
+        A: r.opt_a,
+        B: r.opt_b,
+        C: r.opt_c,
+        D: r.opt_d,
+      },
+      correctOption: VALID_QUIZ_OPTIONS.has(r.correct_option as QuizOptionKey)
+        ? (r.correct_option as QuizOptionKey)
+        : 'A',
+      sortOrder: r.sort_order,
+    }));
+  }
+
+  getPrivateMemories(): PrivateMemoryItem[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, kind, title, subtitle, date_label, body, secret_code, photo_src, palette_json, motif, sort_order FROM private_memories ORDER BY sort_order ASC, updated_at ASC'
+      )
+      .all() as Array<{
+      id: string;
+      kind: string;
+      title: string;
+      subtitle: string;
+      date_label: string;
+      body: string;
+      secret_code: string;
+      photo_src: string;
+      palette_json: string;
+      motif: string;
+      sort_order: number;
+    }>;
+
+    return rows.map((r) => {
+      let palette: [string, string, string] = ['#3b182c', '#8b2252', '#e8c488'];
+      try {
+        const parsed = JSON.parse(r.palette_json) as string[];
+        if (Array.isArray(parsed) && parsed.length === 3) {
+          palette = [parsed[0], parsed[1], parsed[2]];
+        }
+      } catch {
+        // default fallback
+      }
+      return {
+        id: r.id,
+        kind: VALID_PRIVATE_KINDS.has(r.kind as PrivateMemoryKind)
+          ? (r.kind as PrivateMemoryKind)
+          : 'letter',
+        title: r.title,
+        subtitle: r.subtitle,
+        dateLabel: r.date_label,
+        body: r.body,
+        secretCode: r.secret_code,
+        photoSrc: r.photo_src,
+        palette,
+        motif: VALID_MOTIFS.has(r.motif as MemoryMotif) ? (r.motif as MemoryMotif) : 'roses',
+        sortOrder: r.sort_order,
+      };
+    });
+  }
+
+  getSecretProgress(): SecretMysteryProgress {
+    const row = this.db
+      .prepare(
+        'SELECT yes_confirmed, quiz_completed, key_collected, secret_door_unlocked, second_door_unlocked, chamber_discovered, updated_at FROM secret_progress WHERE id = ? LIMIT 1'
+      )
+      .get('default') as
+      | {
+          yes_confirmed: number;
+          quiz_completed: number;
+          key_collected: number;
+          secret_door_unlocked: number;
+          second_door_unlocked: number;
+          chamber_discovered: number;
+          updated_at: number;
+        }
+      | undefined;
+
+    if (!row) return { ...DEFAULT_SECRET_PROGRESS };
+    return {
+      yesConfirmed: Boolean(row.yes_confirmed),
+      quizCompleted: Boolean(row.quiz_completed),
+      keyCollected: Boolean(row.key_collected),
+      secretDoorUnlocked: Boolean(row.secret_door_unlocked),
+      secondDoorUnlocked: Boolean(row.second_door_unlocked),
+      chamberDiscovered: Boolean(row.chamber_discovered),
+      updatedAt: row.updated_at,
+    };
+  }
+
   getFullBundle(): MuseumContentBundle {
     return {
       photos: this.getPhotos(),
@@ -515,12 +749,18 @@ export class MuseumDatabase {
       musicTracks: this.getMusicTracks(),
       settings: this.getSettings(),
       guestbookEntries: this.getGuestbookEntries(),
+      secretQuiz: this.getSecretQuiz(),
+      privateMemories: this.getPrivateMemories(),
+      secretProgress: this.getSecretProgress(),
     };
   }
 
   getReferencedMediaUrls(): Set<string> {
     const urls = new Set<string>();
     for (const p of this.getPhotos()) urls.add(p.photoSrc);
+    for (const pm of this.getPrivateMemories()) {
+      if (pm.photoSrc) urls.add(pm.photoSrc);
+    }
     for (const v of this.getVideos()) {
       urls.add(v.videoSrc);
       urls.add(v.posterSrc);
@@ -868,5 +1108,247 @@ export class MuseumDatabase {
       throw err;
     }
     return next;
+  }
+
+  // ─── Secret Room Mystery Progress & Content CRUD ───────────────────────────
+
+  updateSecretProgress(
+    patch: Partial<Omit<SecretMysteryProgress, 'updatedAt'>>
+  ): SecretMysteryProgress {
+    const cur = this.getSecretProgress();
+    const yesConfirmed = cur.yesConfirmed || Boolean(patch.yesConfirmed);
+    const quizCompleted = cur.quizCompleted || (yesConfirmed && Boolean(patch.quizCompleted));
+    const keyCollected = cur.keyCollected || (quizCompleted && Boolean(patch.keyCollected));
+    const secretDoorUnlocked =
+      cur.secretDoorUnlocked || (keyCollected && Boolean(patch.secretDoorUnlocked));
+    const secondDoorUnlocked =
+      cur.secondDoorUnlocked || (keyCollected && Boolean(patch.secondDoorUnlocked));
+    const chamberDiscovered =
+      cur.chamberDiscovered || (secondDoorUnlocked && Boolean(patch.chamberDiscovered));
+    const updatedAt = Date.now();
+
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO secret_progress
+         (id, yes_confirmed, quiz_completed, key_collected, secret_door_unlocked, second_door_unlocked, chamber_discovered, updated_at)
+         VALUES ('default', ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        yesConfirmed ? 1 : 0,
+        quizCompleted ? 1 : 0,
+        keyCollected ? 1 : 0,
+        secretDoorUnlocked ? 1 : 0,
+        secondDoorUnlocked ? 1 : 0,
+        chamberDiscovered ? 1 : 0,
+        updatedAt
+      );
+
+    return {
+      yesConfirmed,
+      quizCompleted,
+      keyCollected,
+      secretDoorUnlocked,
+      secondDoorUnlocked,
+      chamberDiscovered,
+      updatedAt,
+    };
+  }
+
+  resetSecretProgress(): SecretMysteryProgress {
+    const updatedAt = Date.now();
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO secret_progress
+         (id, yes_confirmed, quiz_completed, key_collected, secret_door_unlocked, second_door_unlocked, chamber_discovered, updated_at)
+         VALUES ('default', 0, 0, 0, 0, 0, 0, ?)`
+      )
+      .run(updatedAt);
+    return { ...DEFAULT_SECRET_PROGRESS, updatedAt };
+  }
+
+  createQuizQuestion(
+    input: Omit<SecretQuizQuestion, 'id' | 'sortOrder'> & { sortOrder?: number }
+  ): SecretQuizQuestion {
+    const maxOrder = (
+      this.db
+        .prepare('SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM secret_quiz_questions')
+        .get() as { max_order: number }
+    ).max_order;
+    const item: SecretQuizQuestion = {
+      ...input,
+      id: `quiz-${crypto.randomUUID().slice(0, 8)}`,
+      sortOrder: typeof input.sortOrder === 'number' ? input.sortOrder : maxOrder + 1,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO secret_quiz_questions (id, question, description, opt_a, opt_b, opt_c, opt_d, correct_option, sort_order, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        item.id,
+        item.question,
+        item.description,
+        item.options.A,
+        item.options.B,
+        item.options.C,
+        item.options.D,
+        item.correctOption,
+        item.sortOrder,
+        Date.now()
+      );
+    return item;
+  }
+
+  updateQuizQuestion(
+    id: string,
+    patch: Partial<Omit<SecretQuizQuestion, 'id'>>
+  ): SecretQuizQuestion | null {
+    const existing = this.getSecretQuiz().find((q) => q.id === id);
+    if (!existing) return null;
+    const next: SecretQuizQuestion = {
+      ...existing,
+      ...patch,
+      options: patch.options ? { ...existing.options, ...patch.options } : existing.options,
+      id: existing.id,
+    };
+    this.db
+      .prepare(
+        `UPDATE secret_quiz_questions
+         SET question = ?, description = ?, opt_a = ?, opt_b = ?, opt_c = ?, opt_d = ?, correct_option = ?, sort_order = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        next.question,
+        next.description,
+        next.options.A,
+        next.options.B,
+        next.options.C,
+        next.options.D,
+        next.correctOption,
+        next.sortOrder,
+        Date.now(),
+        id
+      );
+    return next;
+  }
+
+  reorderQuizQuestions(orderedIds: string[]): void {
+    const stmt = this.db.prepare(
+      'UPDATE secret_quiz_questions SET sort_order = ?, updated_at = ? WHERE id = ?'
+    );
+    const now = Date.now();
+    this.db.exec('BEGIN');
+    try {
+      orderedIds.forEach((id, idx) => {
+        stmt.run(idx + 1, now, id);
+      });
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  deleteQuizQuestion(id: string): boolean {
+    const existing = this.getSecretQuiz().find((q) => q.id === id);
+    if (!existing) return false;
+    this.db.prepare('DELETE FROM secret_quiz_questions WHERE id = ?').run(id);
+    return true;
+  }
+
+  createPrivateMemory(
+    input: Omit<PrivateMemoryItem, 'id' | 'sortOrder'> & { sortOrder?: number }
+  ): PrivateMemoryItem {
+    const maxOrder = (
+      this.db
+        .prepare('SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM private_memories')
+        .get() as { max_order: number }
+    ).max_order;
+    const item: PrivateMemoryItem = {
+      ...input,
+      id: `priv-${crypto.randomUUID().slice(0, 8)}`,
+      sortOrder: typeof input.sortOrder === 'number' ? input.sortOrder : maxOrder + 1,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO private_memories (id, kind, title, subtitle, date_label, body, secret_code, photo_src, palette_json, motif, sort_order, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        item.id,
+        item.kind,
+        item.title,
+        item.subtitle,
+        item.dateLabel,
+        item.body,
+        item.secretCode,
+        item.photoSrc,
+        JSON.stringify(item.palette),
+        item.motif,
+        item.sortOrder,
+        Date.now()
+      );
+    return item;
+  }
+
+  updatePrivateMemory(
+    id: string,
+    patch: Partial<Omit<PrivateMemoryItem, 'id'>>
+  ): { updated: PrivateMemoryItem | null; oldPhotoSrc: string | null } {
+    const existing = this.getPrivateMemories().find((pm) => pm.id === id);
+    if (!existing) return { updated: null, oldPhotoSrc: null };
+    const next: PrivateMemoryItem = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+    };
+    this.db
+      .prepare(
+        `UPDATE private_memories
+         SET kind = ?, title = ?, subtitle = ?, date_label = ?, body = ?, secret_code = ?, photo_src = ?, palette_json = ?, motif = ?, sort_order = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        next.kind,
+        next.title,
+        next.subtitle,
+        next.dateLabel,
+        next.body,
+        next.secretCode,
+        next.photoSrc,
+        JSON.stringify(next.palette),
+        next.motif,
+        next.sortOrder,
+        Date.now(),
+        id
+      );
+    return {
+      updated: next,
+      oldPhotoSrc: existing.photoSrc && existing.photoSrc !== next.photoSrc ? existing.photoSrc : null,
+    };
+  }
+
+  reorderPrivateMemories(orderedIds: string[]): void {
+    const stmt = this.db.prepare(
+      'UPDATE private_memories SET sort_order = ?, updated_at = ? WHERE id = ?'
+    );
+    const now = Date.now();
+    this.db.exec('BEGIN');
+    try {
+      orderedIds.forEach((id, idx) => {
+        stmt.run(idx + 1, now, id);
+      });
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  deletePrivateMemory(id: string): { deleted: boolean; oldPhotoSrc: string | null } {
+    const existing = this.getPrivateMemories().find((pm) => pm.id === id);
+    if (!existing) return { deleted: false, oldPhotoSrc: null };
+    this.db.prepare('DELETE FROM private_memories WHERE id = ?').run(id);
+    return { deleted: true, oldPhotoSrc: existing.photoSrc || null };
   }
 }

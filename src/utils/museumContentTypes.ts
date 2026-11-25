@@ -1,3 +1,9 @@
+import type {
+  PrivateMemoryItem,
+  SecretMysteryProgress,
+  SecretQuizQuestion,
+} from './secretMystery.ts';
+
 export type MemorySection =
   | 'Our First Memories'
   | 'Our First Holidays Together'
@@ -16,9 +22,9 @@ export type MemoryMotif =
   | 'autumn'
   | 'arch';
 
-export type PhotoRoomTarget = 'gallery' | 'garden' | 'album';
+export type PhotoRoomTarget = 'gallery' | 'garden' | 'album' | 'secret';
 
-export type MusicZoneTarget = 'gallery' | 'theatre' | 'garden' | 'dance' | 'playlist';
+export type MusicZoneTarget = 'gallery' | 'theatre' | 'garden' | 'dance' | 'secret' | 'wedding' | 'playlist';
 
 export interface MuseumPhotoItem {
   id: string;
@@ -72,6 +78,8 @@ export interface MuseumSettings {
   theatreMusicTrackId: string;
   gardenMusicTrackId: string;
   danceMusicTrackId: string;
+  secretMusicTrackId?: string;
+  weddingMusicTrackId?: string;
 }
 
 export interface MuseumGuestbookEntry {
@@ -89,6 +97,9 @@ export interface MuseumContentBundle {
   musicTracks: MuseumMusicTrack[];
   settings: MuseumSettings;
   guestbookEntries?: MuseumGuestbookEntry[];
+  secretQuiz?: SecretQuizQuestion[];
+  privateMemories?: PrivateMemoryItem[];
+  secretProgress?: SecretMysteryProgress;
 }
 
 export const DEFAULT_MUSEUM_TEXTS: MuseumTextEntry[] = [
@@ -106,6 +117,9 @@ export const DEFAULT_MUSEUM_TEXTS: MuseumTextEntry[] = [
   { key: 'garden_door_title', label: 'Garden Door Marquee', category: 'Garden', value: 'BEAUTY OF GARDEN' },
   { key: 'garden_welcome_text', label: 'Garden Dedication Note', category: 'Garden', value: 'Moonlit Garden of Memories' },
   { key: 'dance_spot_title', label: 'Dance Pavilion Title', category: 'Dance', value: 'MOONLIT WALTZ' },
+  { key: 'secret_room_title', label: 'Secret Room Title', category: 'Museum', value: 'OUR SECRET ROOM' },
+  { key: 'private_chamber_title', label: 'Private Chamber Title', category: 'Museum', value: 'OUR PRIVATE MEMORIES' },
+  { key: 'wedding_door_title', label: 'Wedding Hall Marquee', category: 'Museum', value: 'OUR WEDDING DAY' },
 ];
 
 export const DEFAULT_MUSEUM_VIDEOS: MuseumVideoItem[] = [
@@ -163,6 +177,26 @@ export const DEFAULT_MUSEUM_MUSIC: MuseumMusicTrack[] = [
     sortOrder: 4,
     isBuiltIn: true,
   },
+  {
+    id: 'track-secret',
+    title: 'Candlelit Secret Sanctuary',
+    subtitle: 'Whispered Felt Piano & Warm Celesta in Eb Major',
+    zone: 'secret',
+    audioSrc: '',
+    volume: 0.76,
+    sortOrder: 5,
+    isBuiltIn: true,
+  },
+  {
+    id: 'track-wedding',
+    title: 'Morning Vows & Forever March',
+    subtitle: 'Sunlit Wedding Harp, Strings & Piano in G Major',
+    zone: 'wedding',
+    audioSrc: '',
+    volume: 0.85,
+    sortOrder: 6,
+    isBuiltIn: true,
+  },
 ];
 
 export const DEFAULT_MUSEUM_SETTINGS: MuseumSettings = {
@@ -173,6 +207,8 @@ export const DEFAULT_MUSEUM_SETTINGS: MuseumSettings = {
   theatreMusicTrackId: 'track-theatre',
   gardenMusicTrackId: 'track-garden',
   danceMusicTrackId: 'track-dance',
+  secretMusicTrackId: 'track-secret',
+  weddingMusicTrackId: 'track-wedding',
 };
 
 export const DEFAULT_MUSEUM_PHOTOS: MuseumPhotoItem[] = [

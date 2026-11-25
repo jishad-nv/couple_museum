@@ -32,6 +32,7 @@ import type {
   MusicZoneTarget,
   PhotoRoomTarget,
 } from './src/utils/museumContentTypes.ts';
+import type { PrivateMemoryKind, QuizOptionKey } from './src/utils/secretMystery.ts';
 
 interface AuthenticatedRequest extends Request {
   adminUser?: AdminTokenPayload;
@@ -57,9 +58,19 @@ const VALID_MOTIFS = new Set<MemoryMotif>([
   'arch',
 ]);
 
-const VALID_ROOM_TARGETS = new Set<PhotoRoomTarget>(['gallery', 'garden', 'album']);
-const VALID_MUSIC_ZONES = new Set<MusicZoneTarget>(['gallery', 'theatre', 'garden', 'dance', 'playlist']);
+const VALID_ROOM_TARGETS = new Set<PhotoRoomTarget>(['gallery', 'garden', 'album', 'secret']);
+const VALID_MUSIC_ZONES = new Set<MusicZoneTarget>([
+  'gallery',
+  'theatre',
+  'garden',
+  'dance',
+  'secret',
+  'wedding',
+  'playlist',
+]);
 const VALID_STAMPS = new Set<MuseumGuestbookEntry['stamp']>(['♡', '✦', '❀', '★']);
+const VALID_QUIZ_OPTIONS = new Set<QuizOptionKey>(['A', 'B', 'C', 'D']);
+const VALID_PRIVATE_KINDS = new Set<PrivateMemoryKind>(['photo', 'letter', 'message', 'board', 'code']);
 
 export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string }) {
   const db = new MuseumDatabase(options?.dbPath);
@@ -143,6 +154,24 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
 
     const entry = db.addGuestbookEntry(author, message, stamp);
     res.status(201).json({ entry });
+  });
+
+  app.post('/api/secret/progress', (req, res) => {
+    const patch: Record<string, boolean> = {};
+    for (const key of [
+      'yesConfirmed',
+      'quizCompleted',
+      'keyCollected',
+      'secretDoorUnlocked',
+      'secondDoorUnlocked',
+      'chamberDiscovered',
+    ] as const) {
+      if (typeof req.body?.[key] === 'boolean') {
+        patch[key] = req.body[key];
+      }
+    }
+    const secretProgress = db.updateSecretProgress(patch);
+    res.json({ secretProgress });
   });
 
   app.get('/api/media/:category/:filename', (req, res) => {
@@ -663,6 +692,206 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
       }
     }
     db.updateSettings(patch);
+    res.json({ bundle: db.getFullBundle() });
+  });
+
+  // ─── Secret Room Mystery Progress & Quiz / Private Memory Admin CRUD ──────
+
+  app.post('/api/admin/secret/reset-progress', requireAdmin, (_req, res) => {
+    db.resetSecretProgress();
+    res.json({ bundle: db.getFullBundle() });
+  });
+
+  app.post('/api/admin/secret-quiz', requireAdmin, (req, res) => {
+    const question = sanitizeText(req.body?.question, 180);
+    const description = sanitizeText(req.body?.description, 240);
+    const optA = sanitizeText(req.body?.options?.A, 120);
+    const optB = sanitizeText(req.body?.options?.B, 120);
+    const optC = sanitizeText(req.body?.options?.C, 120);
+    const optD = sanitizeText(req.body?.options?.D, 120);
+    const rawCorrect = sanitizeText(req.body?.correctOption, 4) as QuizOptionKey;
+
+    if (!question || !optA || !optB || !optC || !optD) {
+      res.status(400).json({ error: 'Question and all four options (A, B, C, D) are required.' });
+      return;
+    }
+
+    const created = db.createQuizQuestion({
+      question,
+      description,
+      options: { A: optA, B: optB, C: optC, D: optD },
+      correctOption: VALID_QUIZ_OPTIONS.has(rawCorrect) ? rawCorrect : 'A',
+    });
+    res.status(201).json({ question: created, bundle: db.getFullBundle() });
+  });
+
+  app.put('/api/admin/secret-quiz/reorder', requireAdmin, (req, res) => {
+    const orderedIds = Array.isArray(req.body?.orderedIds)
+      ? req.body.orderedIds.filter((id: unknown): id is string => typeof id === 'string')
+      : [];
+    if (orderedIds.length === 0) {
+      res.status(400).json({ error: 'orderedIds array is required.' });
+      return;
+    }
+    db.reorderQuizQuestions(orderedIds);
+    res.json({ bundle: db.getFullBundle() });
+  });
+
+  app.put('/api/admin/secret-quiz/:id', requireAdmin, (req, res) => {
+    const patch: Record<string, unknown> = {};
+    if (req.body?.question !== undefined) {
+      const q = sanitizeText(req.body.question, 180);
+      if (!q) {
+        res.status(400).json({ error: 'Question text cannot be empty.' });
+        return;
+      }
+      patch.question = q;
+    }
+    if (req.body?.description !== undefined) {
+      patch.description = sanitizeText(req.body.description, 240);
+    }
+    if (req.body?.options && typeof req.body.options === 'object') {
+      const opts: Partial<Record<QuizOptionKey, string>> = {};
+      for (const k of ['A', 'B', 'C', 'D'] as const) {
+        if (req.body.options[k] !== undefined) {
+          const val = sanitizeText(req.body.options[k], 120);
+          if (!val) {
+            res.status(400).json({ error: `Option ${k} cannot be empty.` });
+            return;
+          }
+          opts[k] = val;
+        }
+      }
+      patch.options = opts;
+    }
+    if (req.body?.correctOption !== undefined) {
+      const c = sanitizeText(req.body.correctOption, 4) as QuizOptionKey;
+      if (VALID_QUIZ_OPTIONS.has(c)) patch.correctOption = c;
+    }
+
+    const updated = db.updateQuizQuestion(paramStr(req.params.id), patch);
+    if (!updated) {
+      res.status(404).json({ error: 'Quiz question not found.' });
+      return;
+    }
+    res.json({ question: updated, bundle: db.getFullBundle() });
+  });
+
+  app.delete('/api/admin/secret-quiz/:id', requireAdmin, (req, res) => {
+    const deleted = db.deleteQuizQuestion(paramStr(req.params.id));
+    if (!deleted) {
+      res.status(404).json({ error: 'Quiz question not found.' });
+      return;
+    }
+    res.json({ bundle: db.getFullBundle() });
+  });
+
+  app.post('/api/admin/private-memories', requireAdmin, (req, res) => {
+    const kind = sanitizeText(req.body?.kind, 20) as PrivateMemoryKind;
+    const title = sanitizeText(req.body?.title, 90);
+    const subtitle = sanitizeText(req.body?.subtitle, 120);
+    const dateLabel = sanitizeText(req.body?.dateLabel, 60);
+    const body = sanitizeText(req.body?.body, 1200);
+    const secretCode = sanitizeText(req.body?.secretCode, 60);
+    const photoSrc = sanitizeText(req.body?.photoSrc, 500);
+    const motif = sanitizeText(req.body?.motif, 20) as MemoryMotif;
+
+    if (!title) {
+      res.status(400).json({ error: 'Memory title is required.' });
+      return;
+    }
+    if (!body && !photoSrc) {
+      res.status(400).json({ error: 'Please include a memory message or photograph.' });
+      return;
+    }
+    if (photoSrc && !isSafeMediaUrl(photoSrc)) {
+      res.status(400).json({ error: 'Invalid photograph source URL.' });
+      return;
+    }
+    const rawPalette = Array.isArray(req.body?.palette) ? req.body.palette : [];
+    const palette: [string, string, string] = [
+      isValidHexColor(rawPalette[0]) ? rawPalette[0] : '#3b182c',
+      isValidHexColor(rawPalette[1]) ? rawPalette[1] : '#8b2252',
+      isValidHexColor(rawPalette[2]) ? rawPalette[2] : '#e8c488',
+    ];
+
+    const created = db.createPrivateMemory({
+      kind: VALID_PRIVATE_KINDS.has(kind) ? kind : 'letter',
+      title,
+      subtitle: subtitle || 'Private Chamber Keepsake',
+      dateLabel: dateLabel || 'Timeless Memory',
+      body,
+      secretCode,
+      photoSrc,
+      palette,
+      motif: VALID_MOTIFS.has(motif) ? motif : 'roses',
+    });
+    res.status(201).json({ memory: created, bundle: db.getFullBundle() });
+  });
+
+  app.put('/api/admin/private-memories/reorder', requireAdmin, (req, res) => {
+    const orderedIds = Array.isArray(req.body?.orderedIds)
+      ? req.body.orderedIds.filter((id: unknown): id is string => typeof id === 'string')
+      : [];
+    if (orderedIds.length === 0) {
+      res.status(400).json({ error: 'orderedIds array is required.' });
+      return;
+    }
+    db.reorderPrivateMemories(orderedIds);
+    res.json({ bundle: db.getFullBundle() });
+  });
+
+  app.put('/api/admin/private-memories/:id', requireAdmin, (req, res) => {
+    const patch: Record<string, unknown> = {};
+    if (req.body?.kind !== undefined) {
+      const kind = sanitizeText(req.body.kind, 20) as PrivateMemoryKind;
+      if (VALID_PRIVATE_KINDS.has(kind)) patch.kind = kind;
+    }
+    if (req.body?.title !== undefined) {
+      const title = sanitizeText(req.body.title, 90);
+      if (!title) {
+        res.status(400).json({ error: 'Memory title cannot be empty.' });
+        return;
+      }
+      patch.title = title;
+    }
+    if (req.body?.subtitle !== undefined) patch.subtitle = sanitizeText(req.body.subtitle, 120);
+    if (req.body?.dateLabel !== undefined) patch.dateLabel = sanitizeText(req.body.dateLabel, 60);
+    if (req.body?.body !== undefined) patch.body = sanitizeText(req.body.body, 1200);
+    if (req.body?.secretCode !== undefined) patch.secretCode = sanitizeText(req.body.secretCode, 60);
+    if (req.body?.photoSrc !== undefined) {
+      const photoSrc = sanitizeText(req.body.photoSrc, 500);
+      if (photoSrc && !isSafeMediaUrl(photoSrc)) {
+        res.status(400).json({ error: 'Invalid photograph URL.' });
+        return;
+      }
+      patch.photoSrc = photoSrc;
+    }
+    if (req.body?.motif !== undefined) {
+      const motif = sanitizeText(req.body.motif, 20) as MemoryMotif;
+      if (VALID_MOTIFS.has(motif)) patch.motif = motif;
+    }
+
+    const { updated, oldPhotoSrc } = db.updatePrivateMemory(paramStr(req.params.id), patch);
+    if (!updated) {
+      res.status(404).json({ error: 'Private memory not found.' });
+      return;
+    }
+    if (oldPhotoSrc) {
+      removeManagedUploadIfUnused(oldPhotoSrc, db.getReferencedMediaUrls(), uploadDir);
+    }
+    res.json({ memory: updated, bundle: db.getFullBundle() });
+  });
+
+  app.delete('/api/admin/private-memories/:id', requireAdmin, (req, res) => {
+    const { deleted, oldPhotoSrc } = db.deletePrivateMemory(paramStr(req.params.id));
+    if (!deleted) {
+      res.status(404).json({ error: 'Private memory not found.' });
+      return;
+    }
+    if (oldPhotoSrc) {
+      removeManagedUploadIfUnused(oldPhotoSrc, db.getReferencedMediaUrls(), uploadDir);
+    }
     res.json({ bundle: db.getFullBundle() });
   });
 

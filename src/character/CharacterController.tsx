@@ -16,7 +16,9 @@ import {
   computeSeatAlignment,
   detectMuseumRoom,
   getDanceCouplePositions,
+  getWeddingCeremonyPose,
 } from '../utils/museumLayout';
+import { isProposalBusy } from '../utils/proposal';
 
 function wrapAngle(angle: number): number {
   let a = angle;
@@ -31,6 +33,8 @@ export default function CharacterController() {
   const targetRotation = useRef(Math.PI);
   const isGrounded = useRef(true);
   const coupleSeqTimer = useRef(0);
+  const proposalTimer = useRef(0);
+  const lastProposalStage = useRef('idle');
   const dancePhaseRef = useRef(0);
   const wasSitting = useRef(false);
   const lastBenchPos = useRef<[number, number, number] | null>(null);
@@ -44,8 +48,16 @@ export default function CharacterController() {
   const isHoldingHands = useGameStore((s) => s.isHoldingHands);
   const isSitting = useGameStore((s) => s.isSitting);
   const isDancing = useGameStore((s) => s.isDancing);
+  const currentRoom = useGameStore((s) => s.currentRoom);
+  const groomOutfit = useGameStore((s) => s.groomOutfit);
+  const weddingStage = useGameStore((s) => s.weddingStage);
+  const proposalStage = useGameStore((s) => s.proposalStage);
   const isWalkingToSeat = useGameStore(
-    (s) => s.scriptedWalk?.onArrive === 'sit_cinema' || s.scriptedWalk?.onArrive === 'sit_garden'
+    (s) =>
+      s.scriptedWalk?.onArrive === 'sit_cinema' ||
+      s.scriptedWalk?.onArrive === 'sit_garden' ||
+      s.scriptedWalk?.onArrive === 'sit_secret' ||
+      s.scriptedWalk?.onArrive === 'sit_wedding'
   );
 
   const forwardVec = useRef(new THREE.Vector3());
@@ -87,6 +99,72 @@ export default function CharacterController() {
       state.setCurrentRoom(room);
     }
 
+    // Handle active Proposal sequence (approaching -> kneeling -> awaiting_answer -> accepted_standing -> embracing -> celebrating)
+    if (state.proposalStage !== 'idle' && state.proposalAnchor) {
+      if (state.proposalStage !== lastProposalStage.current) {
+        lastProposalStage.current = state.proposalStage;
+        proposalTimer.current = 0;
+      }
+      proposalTimer.current += delta;
+
+      const anchor = state.proposalAnchor;
+      const moveAlpha = 1 - Math.exp(-9 * delta);
+      const nx = THREE.MathUtils.lerp(pos.x, anchor.proposer[0], moveAlpha);
+      const ny = THREE.MathUtils.lerp(pos.y, 0, 1 - Math.exp(-12 * delta));
+      const nz = THREE.MathUtils.lerp(pos.z, anchor.proposer[2], moveAlpha);
+
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      rb.setTranslation({ x: nx, y: ny, z: nz }, true);
+
+      targetRotation.current = anchor.proposerFacing;
+      state.setPlayerRotation(anchor.proposerFacing);
+      if (characterRef.current) {
+        const diff = wrapAngle(targetRotation.current - characterRef.current.rotation.y);
+        characterRef.current.rotation.y += diff * Math.min(1, delta * 12);
+      }
+
+      const distToAnchor = Math.hypot(anchor.proposer[0] - pos.x, anchor.proposer[2] - pos.z);
+
+      if (state.proposalStage === 'approaching') {
+        state.setIsMoving(distToAnchor > 0.08);
+        state.setCharacterAction(distToAnchor > 0.08 ? 'walk' : 'idle');
+        if ((distToAnchor <= 0.08 && proposalTimer.current >= 0.55) || proposalTimer.current >= 1.5) {
+          state.setProposalStage('kneeling');
+        }
+      } else if (state.proposalStage === 'kneeling') {
+        state.setIsMoving(false);
+        state.setCharacterAction('propose_kneel');
+        if (proposalTimer.current >= 1.25) {
+          state.setProposalStage('awaiting_answer');
+        }
+      } else if (state.proposalStage === 'awaiting_answer') {
+        state.setIsMoving(false);
+        state.setCharacterAction('propose_kneel');
+      } else if (state.proposalStage === 'accepted_standing') {
+        state.setIsMoving(false);
+        state.setCharacterAction('propose_stand');
+        if (proposalTimer.current >= 1.35) {
+          state.setProposalStage('embracing');
+        }
+      } else if (state.proposalStage === 'embracing') {
+        state.setIsMoving(false);
+        state.setCharacterAction('propose_embrace');
+        if (proposalTimer.current >= 2.6) {
+          state.setProposalStage('celebrating');
+        }
+      } else if (state.proposalStage === 'celebrating') {
+        state.setIsMoving(false);
+        state.setCharacterAction('celebrate');
+        if (proposalTimer.current >= 1.7) {
+          state.finishProposal();
+        }
+      }
+      return;
+    } else {
+      lastProposalStage.current = 'idle';
+      proposalTimer.current = 0;
+    }
+
     // Handle active couple sequence (hug / kiss)
     if (state.activeCoupleSequence === 'hug' || state.activeCoupleSequence === 'kiss') {
       coupleSeqTimer.current += delta;
@@ -117,7 +195,12 @@ export default function CharacterController() {
       const { target, facing, onArrive, benchPos, benchRot } = state.scriptedWalk;
       let destX = target[0];
       let destZ = target[2];
-      const arrivingToSit = (onArrive === 'sit_cinema' || onArrive === 'sit_garden') && Boolean(benchPos);
+      const arrivingToSit =
+        (onArrive === 'sit_cinema' ||
+          onArrive === 'sit_garden' ||
+          onArrive === 'sit_secret' ||
+          onArrive === 'sit_wedding') &&
+        Boolean(benchPos);
       if (arrivingToSit && benchPos) {
         const rot = benchRot ?? Math.PI;
         const aligned = computeSeatAlignment(benchPos, rot);
@@ -127,6 +210,10 @@ export default function CharacterController() {
         const dancePose = getDanceCouplePositions(DANCE_SPOT_POS[0], DANCE_SPOT_POS[2], dancePhaseRef.current);
         destX = dancePose.player[0];
         destZ = dancePose.player[2];
+      } else if (onArrive === 'wedding_aisle') {
+        const aislePose = getWeddingCeremonyPose('aisle_walk');
+        destX = aislePose.player[0];
+        destZ = aislePose.player[2];
       }
 
       const key = `${destX.toFixed(2)},${destZ.toFixed(2)},${onArrive ?? ''}`;
@@ -145,7 +232,8 @@ export default function CharacterController() {
 
       if (dist > (arrivingToSit ? 0.36 : 0.28) && !crossedTarget && !timedOut) {
         lastScriptedDist.current = dist;
-        const walkSpeed = dist < 1.6 ? Math.min(4.8, Math.max(1.05, dist * 2.5)) : 4.8;
+        const maxWalkSpeed = onArrive === 'wedding_aisle' ? 2.6 : 4.8;
+        const walkSpeed = dist < 1.6 ? Math.min(maxWalkSpeed, Math.max(1.05, dist * 2.5)) : maxWalkSpeed;
         const vx = (dx / dist) * walkSpeed;
         const vz = (dz / dist) * walkSpeed;
         rb.setLinvel({ x: vx, y: rb.linvel().y, z: vz }, true);
@@ -171,6 +259,13 @@ export default function CharacterController() {
           }
         } else if (onArrive === 'dance_together') {
           state.activateDanceInPlace();
+        } else if (onArrive === 'wedding_aisle') {
+          state.clearScriptedWalk();
+          state.setWeddingStage('ready');
+          useGameStore.setState({
+            weddingBannerMessage: 'At the floral arch! Press Exchange Vows when ready',
+          });
+          state.setCharacterAction('idle');
         } else {
           state.clearScriptedWalk();
           state.setCharacterAction('idle');
@@ -189,6 +284,44 @@ export default function CharacterController() {
     }
 
     const input = getInput();
+
+    // Wedding Ceremony active altar stages (vows, hug, celebrating) — exits cleanly if user presses WASD
+    if (
+      state.currentRoom === 'wedding' &&
+      (state.weddingStage === 'vows' ||
+        state.weddingStage === 'hug' ||
+        state.weddingStage === 'celebrating')
+    ) {
+      if (input.forward || input.backward || input.left || input.right || input.jump) {
+        state.setWeddingStage('ready');
+      } else {
+        const nextPhase =
+          state.weddingStage === 'celebrating' ? state.weddingPhase + delta * 1.4 : state.weddingPhase;
+        if (state.weddingStage === 'celebrating') {
+          state.setWeddingPhase(nextPhase);
+        }
+        const pose = getWeddingCeremonyPose(state.weddingStage, nextPhase);
+        const cerLerp = 1 - Math.exp(-8 * delta);
+        const nx = THREE.MathUtils.lerp(pos.x, pose.player[0], cerLerp);
+        const nz = THREE.MathUtils.lerp(pos.z, pose.player[2], cerLerp);
+        rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        rb.setTranslation({ x: nx, y: 0, z: nz }, true);
+        targetRotation.current = pose.playerFacing;
+        state.setPlayerRotation(pose.playerFacing);
+        if (characterRef.current) {
+          const diff = wrapAngle(targetRotation.current - characterRef.current.rotation.y);
+          characterRef.current.rotation.y += diff * Math.min(1, delta * 10);
+        }
+        state.setCharacterAction(
+          state.weddingStage === 'celebrating'
+            ? 'celebrate'
+            : state.weddingStage === 'hug'
+            ? 'hug'
+            : 'vows'
+        );
+        return;
+      }
+    }
 
     // Synchronized Dance Together Mode (exits cleanly if user presses WASD / Jump)
     if (state.isDancing) {
@@ -311,13 +444,23 @@ export default function CharacterController() {
       <CapsuleCollider
         args={[0.5, 0.3]}
         position={[0, 0.8, 0]}
-        sensor={isSitting || isWalkingToSeat || isDancing}
+        sensor={
+          isSitting ||
+          isWalkingToSeat ||
+          isDancing ||
+          isProposalBusy(proposalStage) ||
+          weddingStage === 'vows' ||
+          weddingStage === 'hug' ||
+          weddingStage === 'celebrating'
+        }
       />
       <group ref={characterRef} rotation={[0, Math.PI, 0]}>
         <Character
           action={characterAction}
           isMale={true}
           isHoldingHands={isHoldingHands}
+          weddingMode={currentRoom === 'wedding'}
+          groomOutfit={groomOutfit}
         />
       </group>
     </RigidBody>

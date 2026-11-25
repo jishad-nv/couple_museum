@@ -10,10 +10,25 @@ import {
 import type { MemoryItem } from '../utils/memoryArt';
 import {
   DANCE_SPOT_POS,
+  PRIVATE_CHAMBER_ARRIVAL_POS,
+  PRIVATE_CHAMBER_RETURN_POS,
+  SECRET_ARRIVAL_POS,
+  SECRET_RETURN_POS,
+  WEDDING_ALTAR_CENTER,
+  WEDDING_ARRIVAL_POS,
+  WEDDING_RETURN_POS,
   clampCameraDistance,
   clampCameraPitch,
   type MuseumRoom,
 } from '../utils/museumLayout';
+import { buildAlbumSpreads } from '../utils/loveAlbum';
+import {
+  DEFAULT_BRIDE_OUTFIT,
+  DEFAULT_GROOM_OUTFIT,
+  type BrideOutfitConfig,
+  type GroomOutfitConfig,
+  type WeddingStage,
+} from '../utils/weddingAttire';
 import {
   DEFAULT_MUSEUM_MUSIC,
   DEFAULT_MUSEUM_PHOTOS,
@@ -29,9 +44,24 @@ import {
   type MuseumVideoItem,
 } from '../utils/museumContentTypes';
 import {
+  DEFAULT_PRIVATE_MEMORIES,
+  DEFAULT_SECRET_PROGRESS,
+  DEFAULT_SECRET_QUIZ_QUESTIONS,
+  type PrivateMemoryItem,
+  type SecretMysteryProgress,
+  type SecretQuizQuestion,
+} from '../utils/secretMystery';
+import {
+  computeProposalPositions,
+  isProposalBusy,
+  isSuitableProposalLocation,
+  type ProposalStage,
+} from '../utils/proposal';
+import {
   fetchMuseumContent,
   logoutAdmin,
   postGuestbookNote,
+  postSecretProgress,
   type AdminUserSummary,
 } from '../utils/apiClient';
 
@@ -58,7 +88,14 @@ export type CoupleSequenceType = 'none' | 'hug' | 'kiss' | 'sit_transition' | 's
 export interface ScriptedWalkRequest {
   target: [number, number, number];
   facing: number;
-  onArrive?: 'none' | 'sit_cinema' | 'sit_garden' | 'dance_together';
+  onArrive?:
+    | 'none'
+    | 'sit_cinema'
+    | 'sit_garden'
+    | 'sit_secret'
+    | 'sit_wedding'
+    | 'dance_together'
+    | 'wedding_aisle';
   benchPos?: [number, number, number];
   benchRot?: number;
 }
@@ -112,6 +149,44 @@ export interface GameState {
   isMainDoorOpen: boolean;
   isTheatreDoorOpen: boolean;
   isGardenDoorOpen: boolean;
+  isSecretDoorOpen: boolean;
+  isWeddingDoorOpen: boolean;
+
+  // Secret Room Mystery & Private Chamber & Wedding Ceremony Experience
+  secretQuiz: SecretQuizQuestion[];
+  privateMemories: PrivateMemoryItem[];
+  secretProgress: SecretMysteryProgress;
+  showDoYouLoveMeModal: boolean;
+  showLoveQuizModal: boolean;
+  loveQuizSkipIntro: boolean;
+  showKeyRewardPrompt: boolean;
+  isPrivateDoorOpen: boolean;
+  keyUnlockAnimActive: boolean;
+  secretKeyUnlockAnimActive: boolean;
+  nearbyPrivateMemory: PrivateMemoryItem | null;
+  activePrivateMemory: PrivateMemoryItem | null;
+  showPrivateMemoryModal: boolean;
+  secretHintBanner: string | null;
+  showSecretLetterModal: boolean;
+  secretLetterIndex: number;
+  weddingStage: WeddingStage;
+  weddingPhase: number;
+  weddingPhotoFlash: boolean;
+  brideOutfit: BrideOutfitConfig;
+  groomOutfit: GroomOutfitConfig;
+  weddingBannerMessage: string | null;
+
+  // Proposal Sequence & Responsive Toolbar State
+  proposalStage: ProposalStage;
+  proposalAnchor: {
+    proposer: [number, number, number];
+    partner: [number, number, number];
+    proposerFacing: number;
+    partnerFacing: number;
+  } | null;
+  showProposalModal: boolean;
+  proposalAccepted: boolean;
+  coupleToolbarHidden: boolean;
 
   // Interaction
   nearbyInteractable: string | null;
@@ -183,6 +258,15 @@ export interface GameState {
   stopDanceMode: () => void;
   setDancePhase: (phase: number) => void;
 
+  // Proposal actions
+  startProposal: () => void;
+  setProposalStage: (stage: ProposalStage) => void;
+  acceptProposal: () => void;
+  declineProposal: () => void;
+  finishProposal: () => void;
+  setCoupleToolbarHidden: (hidden: boolean) => void;
+  toggleCoupleToolbarHidden: () => void;
+
   // Scripted walk
   startScriptedWalk: (req: ScriptedWalkRequest) => void;
   clearScriptedWalk: () => void;
@@ -196,6 +280,33 @@ export interface GameState {
   setTheatreDoorOpen: (open: boolean) => void;
   toggleTheatreDoor: () => void;
   setGardenDoorOpen: (open: boolean) => void;
+  setSecretDoorOpen: (open: boolean) => void;
+  setWeddingDoorOpen: (open: boolean) => void;
+  enterSecretRoom: () => void;
+  exitSecretRoom: () => void;
+  setShowDoYouLoveMeModal: (show: boolean) => void;
+  confirmDoYouLoveMeYes: () => void;
+  setShowLoveQuizModal: (show: boolean, skipIntro?: boolean) => void;
+  completeLoveQuiz: () => void;
+  collectGoldenKey: () => void;
+  unlockOrEnterPrivateChamber: () => void;
+  exitPrivateChamberToSecret: () => void;
+  exitToMuseumFromPrivateChamber: () => void;
+  setNearbyPrivateMemory: (item: PrivateMemoryItem | null) => void;
+  openPrivateMemory: (item: PrivateMemoryItem) => void;
+  closePrivateMemory: () => void;
+  setSecretHintBanner: (msg: string | null) => void;
+  setShowSecretLetterModal: (show: boolean) => void;
+  setSecretLetterIndex: (index: number) => void;
+  enterWeddingHall: () => void;
+  exitWeddingHall: () => void;
+  startWeddingCeremony: () => void;
+  walkWeddingAisle: () => void;
+  exchangeWeddingVows: () => void;
+  hugAtWedding: () => void;
+  celebrateWedding: () => void;
+  setWeddingStage: (stage: WeddingStage) => void;
+  setWeddingPhase: (phase: number) => void;
   setVideoUrl: (url: string) => void;
   setCinemaPlaying: (playing: boolean) => void;
   setCinemaTime: (time: number) => void;
@@ -221,6 +332,7 @@ export interface GameState {
   setShowPhotoViewer: (show: boolean) => void;
   setCurrentPhoto: (photo: string | null, message?: string | null) => void;
   openMemory: (memory: MemoryItem | null) => void;
+  openAlbumFromMemory: (memory?: MemoryItem | null) => void;
   setShowLoveAlbum: (show: boolean) => void;
   setAlbumSpreadIndex: (index: number) => void;
   setShowVideoPlayer: (show: boolean) => void;
@@ -291,6 +403,39 @@ export const useGameStore = create<GameState>((set, get) => ({
   isMainDoorOpen: false,
   isTheatreDoorOpen: false,
   isGardenDoorOpen: false,
+  isSecretDoorOpen: false,
+  isWeddingDoorOpen: false,
+
+  // Secret Room Mystery & Private Chamber & Wedding Ceremony
+  secretQuiz: DEFAULT_SECRET_QUIZ_QUESTIONS,
+  privateMemories: DEFAULT_PRIVATE_MEMORIES,
+  secretProgress: DEFAULT_SECRET_PROGRESS,
+  showDoYouLoveMeModal: false,
+  showLoveQuizModal: false,
+  loveQuizSkipIntro: false,
+  showKeyRewardPrompt: false,
+  isPrivateDoorOpen: false,
+  keyUnlockAnimActive: false,
+  secretKeyUnlockAnimActive: false,
+  nearbyPrivateMemory: null,
+  activePrivateMemory: null,
+  showPrivateMemoryModal: false,
+  secretHintBanner: null,
+  showSecretLetterModal: false,
+  secretLetterIndex: 0,
+  weddingStage: 'idle',
+  weddingPhase: 0,
+  weddingPhotoFlash: false,
+  brideOutfit: DEFAULT_BRIDE_OUTFIT,
+  groomOutfit: DEFAULT_GROOM_OUTFIT,
+  weddingBannerMessage: null,
+
+  // Proposal Sequence & Responsive Toolbar State
+  proposalStage: 'idle',
+  proposalAnchor: null,
+  showProposalModal: false,
+  proposalAccepted: false,
+  coupleToolbarHidden: false,
 
   // Interaction
   nearbyInteractable: null,
@@ -361,6 +506,24 @@ export const useGameStore = create<GameState>((set, get) => ({
         bundle.guestbookEntries && bundle.guestbookEntries.length > 0
           ? bundle.guestbookEntries
           : s.guestbookEntries,
+      secretQuiz:
+        bundle.secretQuiz && bundle.secretQuiz.length > 0 ? bundle.secretQuiz : s.secretQuiz,
+      privateMemories:
+        bundle.privateMemories && bundle.privateMemories.length > 0
+          ? bundle.privateMemories
+          : s.privateMemories,
+      secretProgress: bundle.secretProgress ?? s.secretProgress,
+      isSecretDoorOpen: bundle.secretProgress
+        ? bundle.secretProgress.secretDoorUnlocked
+          ? s.isSecretDoorOpen
+          : false
+        : s.isSecretDoorOpen,
+      isPrivateDoorOpen: bundle.secretProgress
+        ? bundle.secretProgress.secondDoorUnlocked
+          ? s.isPrivateDoorOpen
+          : false
+        : s.isPrivateDoorOpen,
+      showKeyRewardPrompt: bundle.secretProgress?.keyCollected ? false : s.showKeyRewardPrompt,
       contentLoaded: true,
     }));
   },
@@ -385,12 +548,25 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Couple & Dance
-  setIsHoldingHands: (holding) => set({ isHoldingHands: holding }),
-  toggleHoldHands: () => set((s) => ({ isHoldingHands: !s.isHoldingHands })),
-  setIsWalkingTogether: (walking) => set({ isWalkingTogether: walking }),
-  toggleWalkTogether: () => set((s) => ({ isWalkingTogether: !s.isWalkingTogether })),
+  setIsHoldingHands: (holding) => {
+    if (isProposalBusy(get().proposalStage)) return;
+    set({ isHoldingHands: holding });
+  },
+  toggleHoldHands: () => {
+    if (isProposalBusy(get().proposalStage)) return;
+    set((s) => ({ isHoldingHands: !s.isHoldingHands }));
+  },
+  setIsWalkingTogether: (walking) => {
+    if (isProposalBusy(get().proposalStage)) return;
+    set({ isWalkingTogether: walking });
+  },
+  toggleWalkTogether: () => {
+    if (isProposalBusy(get().proposalStage)) return;
+    set((s) => ({ isWalkingTogether: !s.isWalkingTogether }));
+  },
 
-  startCoupleSequence: (seq) =>
+  startCoupleSequence: (seq) => {
+    if (isProposalBusy(get().proposalStage)) return;
     set({
       activeCoupleSequence: seq,
       sequenceProgress: 0,
@@ -400,7 +576,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       scriptedWalk: null,
       characterAction: seq === 'hug' || seq === 'kiss' ? seq : 'idle',
       companionAction: seq === 'hug' || seq === 'kiss' ? seq : 'idle',
-    }),
+    });
+  },
   setSequenceProgress: (prog) => set({ sequenceProgress: prog }),
   endCoupleSequence: () =>
     set({
@@ -412,6 +589,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   startDanceMode: () => {
     const s = get();
+    if (isProposalBusy(s.proposalStage)) return;
     // Ensure closed room doorways don't block the couple walking to the Dance Pavilion
     const openMain = s.currentRoom === 'exterior' ? true : s.isMainDoorOpen;
     const openTheatre = s.currentRoom === 'cinema' ? true : s.isTheatreDoorOpen;
@@ -462,19 +640,146 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (Math.abs(get().dancePhase - phase) > 0.01) set({ dancePhase: phase });
   },
 
+  // Proposal Sequence Actions
+  startProposal: () => {
+    const s = get();
+    if (isProposalBusy(s.proposalStage)) return;
+    if (
+      !isSuitableProposalLocation(s.currentRoom, s.playerPosition, {
+        isSitting: s.isSitting,
+        isDancing: s.isDancing,
+        proposalStage: s.proposalStage,
+        activeCoupleSequence: s.activeCoupleSequence,
+        secretRoomUnlocked: s.secretProgress.secretDoorUnlocked,
+      })
+    ) {
+      return;
+    }
+    const anchor = computeProposalPositions(s.playerPosition, s.playerRotation, 0.98);
+    set({
+      proposalStage: 'approaching',
+      proposalAnchor: anchor,
+      showProposalModal: false,
+      isHoldingHands: false,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+      isMoving: true,
+      characterAction: 'walk',
+      companionAction: 'walk',
+    });
+  },
+
+  setProposalStage: (stage) => {
+    const s = get();
+    if (stage === 'awaiting_answer') {
+      set({
+        proposalStage: 'awaiting_answer',
+        showProposalModal: true,
+        isMoving: false,
+        characterAction: 'propose_kneel',
+        companionAction: 'propose_surprised',
+      });
+    } else if (stage === 'kneeling') {
+      set({
+        proposalStage: 'kneeling',
+        isMoving: false,
+        characterAction: 'propose_kneel',
+        companionAction: 'propose_surprised',
+      });
+    } else if (stage === 'embracing') {
+      const baseAnchor = s.proposalAnchor ?? computeProposalPositions(s.playerPosition, s.playerRotation, 0.98);
+      const midX = (baseAnchor.proposer[0] + baseAnchor.partner[0]) * 0.5;
+      const midZ = (baseAnchor.proposer[2] + baseAnchor.partner[2]) * 0.5;
+      const dirX = Math.sin(baseAnchor.proposerFacing);
+      const dirZ = Math.cos(baseAnchor.proposerFacing);
+      set({
+        proposalStage: 'embracing',
+        proposalAnchor: {
+          proposer: [midX - dirX * 0.25, 0, midZ - dirZ * 0.25],
+          partner: [midX + dirX * 0.25, 0, midZ + dirZ * 0.25],
+          proposerFacing: baseAnchor.proposerFacing,
+          partnerFacing: baseAnchor.partnerFacing,
+        },
+        characterAction: 'propose_embrace',
+        companionAction: 'propose_embrace',
+      });
+    } else if (stage === 'celebrating') {
+      set({
+        proposalStage: 'celebrating',
+        characterAction: 'celebrate',
+        companionAction: 'celebrate',
+      });
+    } else if (stage === 'idle') {
+      set({
+        proposalStage: 'idle',
+        proposalAnchor: null,
+        showProposalModal: false,
+        characterAction: 'idle',
+        companionAction: 'idle',
+      });
+    } else {
+      set({ proposalStage: stage });
+    }
+  },
+
+  acceptProposal: () =>
+    set({
+      showProposalModal: false,
+      proposalAccepted: true,
+      proposalStage: 'accepted_standing',
+      characterAction: 'propose_stand',
+      companionAction: 'propose_accept',
+      secretHintBanner: 'She said YES! Forever begins right here ❤️',
+    }),
+
+  declineProposal: () => {
+    set({
+      showProposalModal: false,
+      proposalStage: 'idle',
+      proposalAnchor: null,
+      characterAction: 'idle',
+      companionAction: 'idle',
+      secretHintBanner: 'Keep exploring the museum together — ask again whenever the moment feels right ♡',
+    });
+    setTimeout(() => {
+      if (get().secretHintBanner?.startsWith('Keep exploring the museum')) {
+        set({ secretHintBanner: null });
+      }
+    }, 3600);
+  },
+
+  finishProposal: () =>
+    set({
+      proposalStage: 'idle',
+      proposalAnchor: null,
+      showProposalModal: false,
+      characterAction: 'idle',
+      companionAction: 'idle',
+      secretHintBanner: null,
+    }),
+
+  setCoupleToolbarHidden: (hidden) => set({ coupleToolbarHidden: hidden }),
+  toggleCoupleToolbarHidden: () => set((s) => ({ coupleToolbarHidden: !s.coupleToolbarHidden })),
+
   // Scripted walk
-  startScriptedWalk: (req) =>
+  startScriptedWalk: (req) => {
+    if (isProposalBusy(get().proposalStage)) return;
     set({
       scriptedWalk: req,
       isSitting: false,
       isDancing: false,
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
-    }),
+    });
+  },
   clearScriptedWalk: () => set({ scriptedWalk: null }),
 
   // Sitting
-  sitDown: (benchPos, benchRot = 0) =>
+  sitDown: (benchPos, benchRot = 0) => {
+    if (isProposalBusy(get().proposalStage)) return;
     set({
       isSitting: true,
       isDancing: false,
@@ -484,7 +789,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       activeCoupleSequence: 'none',
       characterAction: 'sit',
       companionAction: 'sit',
-    }),
+    });
+  },
   standUp: () =>
     set({
       isSitting: false,
@@ -498,6 +804,396 @@ export const useGameStore = create<GameState>((set, get) => ({
   setTheatreDoorOpen: (open) => set({ isTheatreDoorOpen: open }),
   toggleTheatreDoor: () => set((s) => ({ isTheatreDoorOpen: !s.isTheatreDoorOpen })),
   setGardenDoorOpen: (open) => set({ isGardenDoorOpen: open }),
+  setSecretDoorOpen: (open) => set({ isSecretDoorOpen: open }),
+  setWeddingDoorOpen: (open) => set({ isWeddingDoorOpen: open }),
+
+  enterSecretRoom: () => {
+    const s = get();
+    if (!s.secretProgress.secretDoorUnlocked) {
+      if (!s.secretProgress.keyCollected) {
+        set({
+          isSecretDoorOpen: false,
+          scriptedWalk: null,
+          secretHintBanner: !s.secretProgress.yesConfirmed
+            ? 'Secret Room is locked! Approach the Quiz Master nearby to begin the Love Test and earn the Golden Key.'
+            : !s.secretProgress.quizCompleted
+            ? 'Secret Room is locked! Complete the 5-question Love Test with the Quiz Master first.'
+            : 'Secret Room is locked! Open the glowing Reward Box nearby and collect your Golden Key.',
+        });
+        setTimeout(() => {
+          if (get().secretHintBanner?.startsWith('Secret Room is locked!')) {
+            set({ secretHintBanner: null });
+          }
+        }, 4500);
+        return;
+      }
+
+      // Key is collected! Play Golden Key unlocking animation, persist unlock, open door, then walk in naturally
+      if (s.secretKeyUnlockAnimActive) return;
+      set({
+        secretKeyUnlockAnimActive: true,
+        isSecretDoorOpen: false,
+        scriptedWalk: null,
+        secretHintBanner: 'Unlocking Our Secret Room with your Golden Key...',
+      });
+      setTimeout(() => {
+        set((cur) => ({
+          secretKeyUnlockAnimActive: false,
+          isSecretDoorOpen: true,
+          isSitting: false,
+          isDancing: false,
+          sittingBenchPosition: null,
+          activeCoupleSequence: 'none',
+          secretHintBanner: 'Our Secret Room Unlocked ❤️',
+          secretProgress: {
+            ...cur.secretProgress,
+            secretDoorUnlocked: true,
+            updatedAt: Date.now(),
+          },
+          scriptedWalk: {
+            target: SECRET_ARRIVAL_POS,
+            facing: Math.PI / 2,
+          },
+        }));
+        void postSecretProgress({ secretDoorUnlocked: true })
+          .then((prog) => set({ secretProgress: prog }))
+          .catch(() => {});
+        setTimeout(() => {
+          if (get().secretHintBanner === 'Our Secret Room Unlocked ❤️') {
+            set({ secretHintBanner: null });
+          }
+        }, 3600);
+      }, 1350);
+      return;
+    }
+
+    set({
+      isSecretDoorOpen: true,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      activeCoupleSequence: 'none',
+      scriptedWalk: {
+        target: SECRET_ARRIVAL_POS,
+        facing: Math.PI / 2,
+      },
+    });
+  },
+
+  exitSecretRoom: () =>
+    set({
+      isSecretDoorOpen: true,
+      isSitting: false,
+      sittingBenchPosition: null,
+      showSecretLetterModal: false,
+      showLoveQuizModal: false,
+      scriptedWalk: {
+        target: SECRET_RETURN_POS,
+        facing: -Math.PI / 2,
+      },
+    }),
+
+  setShowDoYouLoveMeModal: (show) => set({ showDoYouLoveMeModal: show }),
+
+  confirmDoYouLoveMeYes: () => {
+    set((s) => ({
+      showDoYouLoveMeModal: false,
+      showLoveQuizModal: !s.secretProgress.quizCompleted,
+      loveQuizSkipIntro: false,
+      isSecretDoorOpen: false,
+      secretProgress: {
+        ...s.secretProgress,
+        yesConfirmed: true,
+        updatedAt: Date.now(),
+      },
+    }));
+    void postSecretProgress({ yesConfirmed: true })
+      .then((prog) => set({ secretProgress: prog }))
+      .catch(() => {});
+  },
+
+  setShowLoveQuizModal: (show, skipIntro = false) =>
+    set({ showLoveQuizModal: show, loveQuizSkipIntro: Boolean(skipIntro) }),
+
+  completeLoveQuiz: () => {
+    set((s) => ({
+      showLoveQuizModal: false,
+      showKeyRewardPrompt: !s.secretProgress.keyCollected,
+      isSecretDoorOpen: false,
+      secretHintBanner: !s.secretProgress.keyCollected
+        ? 'The Reward Box opened! Collect the Golden Key before unlocking the Secret Room.'
+        : null,
+      secretProgress: {
+        ...s.secretProgress,
+        quizCompleted: true,
+        updatedAt: Date.now(),
+      },
+    }));
+    void postSecretProgress({ quizCompleted: true })
+      .then((prog) => set({ secretProgress: prog }))
+      .catch(() => {});
+  },
+
+  collectGoldenKey: () => {
+    set((s) => ({
+      showKeyRewardPrompt: false,
+      isSecretDoorOpen: false,
+      secretHintBanner:
+        'Golden Key collected! Approach the Secret Room entrance and select UNLOCK SECRET ROOM.',
+      secretProgress: {
+        ...s.secretProgress,
+        quizCompleted: true,
+        keyCollected: true,
+        updatedAt: Date.now(),
+      },
+    }));
+    void postSecretProgress({ quizCompleted: true, keyCollected: true })
+      .then((prog) => set({ secretProgress: prog }))
+      .catch(() => {});
+    setTimeout(() => {
+      if (get().secretHintBanner?.startsWith('Golden Key collected!')) {
+        set({ secretHintBanner: null });
+      }
+    }, 5200);
+  },
+
+  unlockOrEnterPrivateChamber: () => {
+    const s = get();
+    if (!s.secretProgress.keyCollected) {
+      set({
+        secretHintBanner:
+          'This door is sealed. Answer the 5-question Love Test with the Quiz Master and collect the golden key from the chest first!',
+      });
+      setTimeout(() => {
+        if (get().secretHintBanner?.startsWith('This door is sealed.')) {
+          set({ secretHintBanner: null });
+        }
+      }, 4500);
+      return;
+    }
+
+    if (!s.secretProgress.secondDoorUnlocked) {
+      if (s.keyUnlockAnimActive) return;
+      set({
+        keyUnlockAnimActive: true,
+        secretHintBanner: 'Unlocking the hidden chamber with your Golden Key...',
+      });
+      setTimeout(() => {
+        set((cur) => ({
+          keyUnlockAnimActive: false,
+          isPrivateDoorOpen: true,
+          isSitting: false,
+          sittingBenchPosition: null,
+          secretHintBanner: 'Welcome to Our Private Memories ❤️',
+          secretProgress: {
+            ...cur.secretProgress,
+            secondDoorUnlocked: true,
+            chamberDiscovered: true,
+            updatedAt: Date.now(),
+          },
+          scriptedWalk: {
+            target: PRIVATE_CHAMBER_ARRIVAL_POS,
+            facing: Math.PI / 2,
+          },
+        }));
+        void postSecretProgress({ secondDoorUnlocked: true, chamberDiscovered: true })
+          .then((prog) => set({ secretProgress: prog }))
+          .catch(() => {});
+        setTimeout(() => {
+          if (get().secretHintBanner === 'Welcome to Our Private Memories ❤️') {
+            set({ secretHintBanner: null });
+          }
+        }, 3800);
+      }, 1400);
+      return;
+    }
+
+    set({
+      isPrivateDoorOpen: true,
+      isSitting: false,
+      sittingBenchPosition: null,
+      scriptedWalk: {
+        target: PRIVATE_CHAMBER_ARRIVAL_POS,
+        facing: Math.PI / 2,
+      },
+    });
+  },
+
+  exitPrivateChamberToSecret: () =>
+    set({
+      isPrivateDoorOpen: true,
+      isSitting: false,
+      sittingBenchPosition: null,
+      showPrivateMemoryModal: false,
+      activePrivateMemory: null,
+      scriptedWalk: {
+        target: PRIVATE_CHAMBER_RETURN_POS,
+        facing: -Math.PI / 2,
+      },
+    }),
+
+  exitToMuseumFromPrivateChamber: () =>
+    set({
+      isPrivateDoorOpen: true,
+      isSecretDoorOpen: true,
+      isSitting: false,
+      sittingBenchPosition: null,
+      showPrivateMemoryModal: false,
+      activePrivateMemory: null,
+      scriptedWalk: {
+        target: SECRET_RETURN_POS,
+        facing: -Math.PI / 2,
+      },
+    }),
+
+  setNearbyPrivateMemory: (item) => {
+    if (get().nearbyPrivateMemory?.id !== item?.id) {
+      set({ nearbyPrivateMemory: item });
+    }
+  },
+
+  openPrivateMemory: (item) =>
+    set({
+      activePrivateMemory: item,
+      showPrivateMemoryModal: true,
+    }),
+
+  closePrivateMemory: () =>
+    set({
+      showPrivateMemoryModal: false,
+      activePrivateMemory: null,
+    }),
+
+  setSecretHintBanner: (msg) => set({ secretHintBanner: msg }),
+
+  setShowSecretLetterModal: (show) => set({ showSecretLetterModal: show }),
+  setSecretLetterIndex: (index) => set({ secretLetterIndex: Math.max(0, index) }),
+
+  enterWeddingHall: () => {
+    set({
+      isWeddingDoorOpen: true,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'ready',
+      weddingBannerMessage: 'Welcome to Our Wedding Day — Press Start Wedding to begin',
+      scriptedWalk: {
+        target: WEDDING_ARRIVAL_POS,
+        facing: Math.PI,
+      },
+    });
+  },
+
+  exitWeddingHall: () =>
+    set({
+      isWeddingDoorOpen: true,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'idle',
+      weddingBannerMessage: null,
+      scriptedWalk: {
+        target: WEDDING_RETURN_POS,
+        facing: 0.68,
+      },
+    }),
+
+  startWeddingCeremony: () =>
+    set({
+      isHoldingHands: true,
+      isWalkingTogether: true,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'aisle_walk',
+      weddingBannerMessage: 'Walking hand in hand down the floral aisle...',
+      scriptedWalk: {
+        target: [WEDDING_ALTAR_CENTER[0], 0, WEDDING_ALTAR_CENTER[2] + 0.3],
+        facing: Math.PI,
+        onArrive: 'wedding_aisle',
+      },
+    }),
+
+  walkWeddingAisle: () =>
+    set({
+      isHoldingHands: true,
+      isWalkingTogether: true,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'aisle_walk',
+      weddingBannerMessage: 'Walking together beneath the morning blooms...',
+      scriptedWalk: {
+        target: [WEDDING_ALTAR_CENTER[0], 0, WEDDING_ALTAR_CENTER[2] + 0.3],
+        facing: Math.PI,
+        onArrive: 'wedding_aisle',
+      },
+    }),
+
+  exchangeWeddingVows: () =>
+    set({
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      isHoldingHands: true,
+      weddingStage: 'vows',
+      weddingBannerMessage: '“With this ring and all my heart, I choose you today and always.”',
+    }),
+
+  hugAtWedding: () =>
+    set({
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'hug',
+      weddingBannerMessage: 'Sealed with a heartfelt embrace beneath the wedding arch',
+      characterAction: 'hug',
+      companionAction: 'hug',
+    }),
+
+  celebrateWedding: () => {
+    set({
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage: 'celebrating',
+      weddingPhase: 0,
+      weddingBannerMessage: 'Just Married! Celebrate together beneath falling red rose petals',
+      characterAction: 'celebrate',
+      companionAction: 'celebrate',
+    });
+    setTimeout(() => {
+      if (get().currentRoom === 'wedding' && get().weddingStage === 'celebrating') {
+        set({ weddingPhotoFlash: true });
+        setTimeout(() => {
+          set({ weddingPhotoFlash: false });
+        }, 2100);
+      }
+    }, 1500);
+  },
+
+  setWeddingStage: (stage) => set({ weddingStage: stage }),
+  setWeddingPhase: (phase) => {
+    if (Math.abs(get().weddingPhase - phase) > 0.01) set({ weddingPhase: phase });
+  },
+
   setVideoUrl: (url) => set({ videoUrl: url }),
   setCinemaPlaying: (playing) => set({ cinemaPlaying: playing }),
   setCinemaTime: (time) => set({ cinemaTime: time }),
@@ -517,11 +1213,27 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCameraDistance: (dist) => set({ cameraDistance: clampCameraDistance(dist) }),
   setCameraAngle: (x, y) => set({ cameraAngleX: x, cameraAngleY: clampCameraPitch(y) }),
   setCurrentRoom: (room) => {
-    if (get().currentRoom === room) return;
-    set((state) => ({
-      currentRoom: room,
-      visitedRooms: new Set([...state.visitedRooms, room]),
-    }));
+    const prev = get().currentRoom;
+    if (prev === room) return;
+    set((state) => {
+      const enteringWedding = room === 'wedding' && state.weddingStage === 'idle';
+      const leavingWedding = prev === 'wedding' && room !== 'wedding';
+      return {
+        currentRoom: room,
+        visitedRooms: new Set([...state.visitedRooms, room]),
+        weddingPhotoFlash: leavingWedding ? false : state.weddingPhotoFlash,
+        weddingStage: leavingWedding
+          ? 'idle'
+          : enteringWedding
+          ? 'ready'
+          : state.weddingStage,
+        weddingBannerMessage: leavingWedding
+          ? null
+          : enteringWedding && !state.weddingBannerMessage
+          ? 'Welcome to Our Wedding Day — Press Start Wedding to begin'
+          : state.weddingBannerMessage,
+      };
+    });
   },
   setNearbyInteractable: (id) => {
     if (get().nearbyInteractable !== id) set({ nearbyInteractable: id });
@@ -550,6 +1262,26 @@ export const useGameStore = create<GameState>((set, get) => ({
       currentPhotoMessage: memory ? memory.description : null,
       showPhotoViewer: memory !== null,
     }),
+  openAlbumFromMemory: (memory = null) => {
+    const spreads = buildAlbumSpreads(get().photos);
+    let targetSpread = 0;
+    if (memory) {
+      const idx = spreads.findIndex(
+        (sp) =>
+          sp.leftPage?.id === memory.id ||
+          sp.rightPage?.id === memory.id ||
+          sp.leftPage?.photoSrc === memory.photoSrc ||
+          sp.rightPage?.photoSrc === memory.photoSrc
+      );
+      if (idx >= 0) targetSpread = idx;
+    }
+    set({
+      showPhotoViewer: false,
+      showVideoPlayer: false,
+      albumSpreadIndex: targetSpread,
+      showLoveAlbum: true,
+    });
+  },
   setShowLoveAlbum: (show) => set({ showLoveAlbum: show }),
   setAlbumSpreadIndex: (index) => set({ albumSpreadIndex: Math.max(0, index) }),
   setShowVideoPlayer: (show) => set({ showVideoPlayer: show }),

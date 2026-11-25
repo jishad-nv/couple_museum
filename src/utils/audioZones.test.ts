@@ -10,12 +10,14 @@ import {
   type AudioZoneId,
 } from './audioZones';
 
-test('roomToAudioZone maps exterior, entrance, and gallery to gallery, cinema to theatre, garden to garden, and dance to dance', () => {
+test('roomToAudioZone maps all rooms including secret and wedding accurately', () => {
   assert.equal(roomToAudioZone('exterior'), 'gallery');
   assert.equal(roomToAudioZone('entrance'), 'gallery');
   assert.equal(roomToAudioZone('gallery'), 'gallery');
   assert.equal(roomToAudioZone('cinema'), 'theatre');
   assert.equal(roomToAudioZone('garden'), 'garden');
+  assert.equal(roomToAudioZone('secret'), 'secret');
+  assert.equal(roomToAudioZone('wedding'), 'wedding');
   assert.equal(roomToAudioZone('gallery', true), 'dance');
   assert.equal(roomToAudioZone('entrance', true), 'dance');
 });
@@ -26,36 +28,64 @@ test('computeZoneMixGains enforces single active zone when playing and zeroed ga
     theatre: 0,
     garden: 0,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
   assert.deepEqual(computeZoneMixGains('theatre', true, false), {
     gallery: 0,
     theatre: 1,
     garden: 0,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
   assert.deepEqual(computeZoneMixGains('garden', true, false), {
     gallery: 0,
     theatre: 0,
     garden: 1,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
   assert.deepEqual(computeZoneMixGains('dance', true, false), {
     gallery: 0,
     theatre: 0,
     garden: 0,
     dance: 1,
+    secret: 0,
+    wedding: 0,
+  });
+  assert.deepEqual(computeZoneMixGains('secret', true, false), {
+    gallery: 0,
+    theatre: 0,
+    garden: 0,
+    dance: 0,
+    secret: 1,
+    wedding: 0,
+  });
+  assert.deepEqual(computeZoneMixGains('wedding', true, false), {
+    gallery: 0,
+    theatre: 0,
+    garden: 0,
+    dance: 0,
+    secret: 0,
+    wedding: 1,
   });
   assert.deepEqual(computeZoneMixGains('theatre', false, false), {
     gallery: 0,
     theatre: 0,
     garden: 0,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
   assert.deepEqual(computeZoneMixGains('garden', true, true), {
     gallery: 0,
     theatre: 0,
     garden: 0,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
 });
 
@@ -74,8 +104,8 @@ test('computeEqualPowerCrossfade preserves smooth equal-power energy across tran
   assert.ok(CROSSFADE_DURATION_SECONDS >= 1.5);
 });
 
-test('AUDIO_TRACKS define valid multi-chord romantic progressions for all four zones', () => {
-  const zones: AudioZoneId[] = ['gallery', 'theatre', 'garden', 'dance'];
+test('AUDIO_TRACKS define valid multi-chord romantic progressions for all six zones', () => {
+  const zones: AudioZoneId[] = ['gallery', 'theatre', 'garden', 'dance', 'secret', 'wedding'];
   for (const zone of zones) {
     const spec = AUDIO_TRACKS[zone];
     assert.ok(spec.title.length > 0);

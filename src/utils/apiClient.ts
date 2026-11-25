@@ -6,6 +6,11 @@ import type {
   MuseumSettings,
   MuseumVideoItem,
 } from './museumContentTypes';
+import type {
+  PrivateMemoryItem,
+  SecretMysteryProgress,
+  SecretQuizQuestion,
+} from './secretMystery';
 import type { GuestbookStamp } from './guestbook';
 
 export interface AdminUserSummary {
@@ -301,6 +306,131 @@ export async function updateAdminSettings(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(settings),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function postSecretProgress(
+  patch: Partial<Omit<SecretMysteryProgress, 'updatedAt'>>
+): Promise<SecretMysteryProgress> {
+  const res = await fetch('/api/secret/progress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await parseJsonOrThrow<{ secretProgress: SecretMysteryProgress }>(res);
+  return data.secretProgress;
+}
+
+export async function resetAdminSecretProgress(token: string): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/secret/reset-progress', {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function createAdminQuizQuestion(
+  token: string,
+  payload: Omit<SecretQuizQuestion, 'id' | 'sortOrder'>
+): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/secret-quiz', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function updateAdminQuizQuestion(
+  token: string,
+  id: string,
+  patch: Partial<Omit<SecretQuizQuestion, 'id'>>
+): Promise<MuseumContentBundle> {
+  const res = await fetch(`/api/admin/secret-quiz/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(patch),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function reorderAdminQuizQuestions(
+  token: string,
+  orderedIds: string[]
+): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/secret-quiz/reorder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ orderedIds }),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function deleteAdminQuizQuestion(
+  token: string,
+  id: string
+): Promise<MuseumContentBundle> {
+  const res = await fetch(`/api/admin/secret-quiz/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function createAdminPrivateMemory(
+  token: string,
+  payload: Omit<PrivateMemoryItem, 'id' | 'sortOrder'>
+): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/private-memories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function updateAdminPrivateMemory(
+  token: string,
+  id: string,
+  patch: Partial<Omit<PrivateMemoryItem, 'id'>>
+): Promise<MuseumContentBundle> {
+  const res = await fetch(`/api/admin/private-memories/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(patch),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function reorderAdminPrivateMemories(
+  token: string,
+  orderedIds: string[]
+): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/private-memories/reorder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ orderedIds }),
+  });
+  const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function deleteAdminPrivateMemory(
+  token: string,
+  id: string
+): Promise<MuseumContentBundle> {
+  const res = await fetch(`/api/admin/private-memories/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
   });
   const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
   return data.bundle;

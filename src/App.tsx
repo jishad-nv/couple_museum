@@ -9,6 +9,11 @@ import LoveAlbumModal from './components/UI/LoveAlbumModal';
 import MobileControls from './components/UI/MobileControls';
 import PhotoViewer from './components/UI/PhotoViewer';
 import VideoPlayer from './components/UI/VideoPlayer';
+import SecretLetterModal from './components/UI/SecretLetterModal';
+import DoYouLoveMeModal from './components/UI/DoYouLoveMeModal';
+import LoveQuizModal from './components/UI/LoveQuizModal';
+import PrivateMemoryViewerModal from './components/UI/PrivateMemoryViewerModal';
+import ProposalModal from './components/UI/ProposalModal';
 import AdminLoginModal from './components/Admin/AdminLoginModal';
 import AdminPanel from './components/Admin/AdminPanel';
 import { useGameStore } from './store/gameStore';
@@ -34,6 +39,11 @@ export default function App() {
           <EntranceGuestbook />
           <GuestbookModal />
           <LoveAlbumModal />
+          <SecretLetterModal />
+          <DoYouLoveMeModal />
+          <LoveQuizModal />
+          <PrivateMemoryViewerModal />
+          <ProposalModal />
           <MobileControls />
           <PhotoViewer />
           <VideoPlayer />

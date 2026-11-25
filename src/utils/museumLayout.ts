@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 
-export type MuseumRoom = 'exterior' | 'entrance' | 'gallery' | 'cinema' | 'garden';
+export type MuseumRoom =
+  | 'exterior'
+  | 'entrance'
+  | 'gallery'
+  | 'cinema'
+  | 'garden'
+  | 'secret'
+  | 'private_chamber'
+  | 'wedding';
 
 export const GALLERY_CENTER: [number, number, number] = [0, 0, -21.5];
 export const GALLERY_OUTER_RADIUS = 17;
@@ -11,10 +19,74 @@ export const DANCE_PARTNER_SPACING = 0.72;
 export const MAIN_DOOR_POS: [number, number, number] = [0, 0, 4.0];
 export const THEATRE_DOOR_POS: [number, number, number] = [0, 0, -38.5];
 export const GARDEN_DOOR_POS: [number, number, number] = [12.0, 0, -33.5];
+export const SECRET_DOOR_POS: [number, number, number] = [-17.0, 0, -21.5];
+export const WEDDING_DOOR_POS: [number, number, number] = [-12.0, 0, -33.5];
 
 export const ENTRANCE_ARRIVAL_POS: [number, number, number] = [0, 0, 0.8];
 export const THEATRE_ARRIVAL_POS: [number, number, number] = [0, 0, -41.5];
 export const GARDEN_ARRIVAL_POS: [number, number, number] = [15.5, 0, -34.8];
+
+// Secret Room ("Our Secret Room") west of the Circular Gallery
+export const SECRET_ROOM_CENTER: [number, number, number] = [-26.5, 0, -21.5];
+export const SECRET_ARRIVAL_POS: [number, number, number] = [-21.4, 0, -21.5];
+export const SECRET_RETURN_POS: [number, number, number] = [-13.8, 0, -21.5];
+export const SECRET_LOVESEAT_POS: [number, number, number] = [-25.0, 0, -26.4];
+export const SECRET_LETTER_PLINTH_POS: [number, number, number] = [-30.0, 0, -25.8];
+// Quiz Master & Reward Box guard the Secret Room entrance in the Circular Gallery West Alcove
+export const QUIZ_MASTER_POS: [number, number, number] = [-14.0, 0, -18.2];
+export const REWARD_BOX_POS: [number, number, number] = [-14.0, 0, -24.8];
+export const SECRET_PROPOSAL_SPOT: [number, number, number] = [-26.5, 0, -21.5];
+export const SECRET_PROPOSAL_RADIUS = 3.2;
+export const PRIVATE_DOOR_POS: [number, number, number] = [-35.6, 0, -21.5];
+
+// Hidden Memory Chamber ("Our Private Memories") behind the second mysterious door
+export const PRIVATE_CHAMBER_CENTER: [number, number, number] = [-44.8, 0, -21.5];
+export const PRIVATE_CHAMBER_ARRIVAL_POS: [number, number, number] = [-39.0, 0, -21.5];
+export const PRIVATE_CHAMBER_RETURN_POS: [number, number, number] = [-32.4, 0, -21.5];
+export const PRIVATE_CENTRAL_BOARD_POS: [number, number, number] = [-44.8, 0, -21.5];
+
+export const PRIVATE_MEMORY_DISPLAY_SLOTS: ReadonlyArray<{
+  position: [number, number, number];
+  rotation: [number, number, number];
+  isBoard?: boolean;
+}> = [
+  // Slot 0: Special Central Memory Board inside chamber
+  { position: [-44.8, 1.55, -21.5], rotation: [0, Math.PI / 2, 0], isBoard: true },
+  // North wall displays
+  { position: [-40.0, 2.25, -30.18], rotation: [0, 0, 0] },
+  { position: [-44.8, 2.25, -30.18], rotation: [0, 0, 0] },
+  { position: [-49.6, 2.25, -30.18], rotation: [0, 0, 0] },
+  // South wall displays
+  { position: [-40.0, 2.25, -12.82], rotation: [0, Math.PI, 0] },
+  { position: [-44.8, 2.25, -12.82], rotation: [0, Math.PI, 0] },
+  { position: [-49.6, 2.25, -12.82], rotation: [0, Math.PI, 0] },
+  // West featured archive wall displays
+  { position: [-53.55, 2.25, -25.8], rotation: [0, Math.PI / 2, 0] },
+  { position: [-53.55, 2.25, -21.5], rotation: [0, Math.PI / 2, 0] },
+  { position: [-53.55, 2.25, -17.2], rotation: [0, Math.PI / 2, 0] },
+  // Additional North/South archive alcoves if admin adds extra items
+  { position: [-37.6, 2.25, -30.18], rotation: [0, 0, 0] },
+  { position: [-51.8, 2.25, -12.82], rotation: [0, Math.PI, 0] },
+];
+
+// Destination Wedding Venue ("Our Wedding Day") north-west courtyard
+export const WEDDING_COURTYARD_CENTER: [number, number, number] = [-26.5, 0, -50.5];
+export const WEDDING_ARRIVAL_POS: [number, number, number] = [-26.5, 0, -38.8];
+export const WEDDING_RETURN_POS: [number, number, number] = [-9.6, 0, -31.1];
+export const WEDDING_ALTAR_CENTER: [number, number, number] = [-26.5, 0, -58.6];
+export const WEDDING_ARCH_POS: [number, number, number] = [-26.5, 0, -61.2];
+
+export const WEDDING_GUEST_SEATS: ReadonlyArray<{
+  id: string;
+  label: string;
+  position: [number, number, number];
+  rotation: number;
+}> = [
+  { id: 'wedding-seat-left-front', label: 'Bride Side Front Pew', position: [-29.8, 0, -51.5], rotation: 1.57 },
+  { id: 'wedding-seat-right-front', label: 'Groom Side Front Pew', position: [-23.2, 0, -51.5], rotation: -1.57 },
+  { id: 'wedding-seat-left-mid', label: 'Garden Rose Pew', position: [-29.8, 0, -47.0], rotation: 1.57 },
+  { id: 'wedding-seat-right-mid', label: 'Golden Silk Pew', position: [-23.2, 0, -47.0], rotation: -1.57 },
+];
 
 export const THEATRE_VIP_SEAT_POS: [number, number, number] = [0, 0, -47.5];
 export const THEATRE_SIDE_SEATS: ReadonlyArray<{
@@ -73,10 +145,66 @@ export function detectMuseumRoom(x: number, z: number): MuseumRoom {
   if (z < -38.5 && Math.abs(x) <= 8.5) {
     return 'cinema';
   }
-  if (x > 11.2 && z <= -22.0 && z >= -54.0) {
+  if (x > 11.2 && z <= -22.0 && z >= -54.0 && Math.hypot(x, z + 21.5) > 16.7) {
     return 'garden';
   }
+  if (x <= -35.8 && z >= -31.0 && z <= -12.0) {
+    return 'private_chamber';
+  }
+  if (x <= -17.5 && x > -35.8 && z >= -30.5 && z <= -12.5) {
+    return 'secret';
+  }
+  if (x <= -12.8 && z <= -34.0 && z >= -68.0) {
+    return 'wedding';
+  }
   return 'gallery';
+}
+
+export function getWeddingCeremonyPose(
+  stage: 'aisle_walk' | 'vows' | 'hug' | 'celebrating',
+  phase = 0
+): {
+  player: [number, number, number];
+  partner: [number, number, number];
+  playerFacing: number;
+  partnerFacing: number;
+} {
+  const cx = WEDDING_ALTAR_CENTER[0];
+  const cz = WEDDING_ALTAR_CENTER[2];
+
+  if (stage === 'vows') {
+    // Facing each other cleanly beneath the floral wedding arch at ring-exchange clasp reach
+    return {
+      player: [cx - 0.43, 0, cz],
+      partner: [cx + 0.43, 0, cz],
+      playerFacing: Math.PI / 2,
+      partnerFacing: -Math.PI / 2,
+    };
+  }
+  if (stage === 'hug') {
+    return {
+      player: [cx - 0.27, 0, cz],
+      partner: [cx + 0.27, 0, cz],
+      playerFacing: Math.PI / 2,
+      partnerFacing: -Math.PI / 2,
+    };
+  }
+  if (stage === 'celebrating') {
+    const sway = Math.sin(phase * 0.7) * 0.16;
+    return {
+      player: [cx - 0.42 + sway, 0, cz + 0.45],
+      partner: [cx + 0.42 + sway, 0, cz + 0.45],
+      playerFacing: 0.14,
+      partnerFacing: -0.14,
+    };
+  }
+  // aisle_walk target at north altar facing the floral arch (-Z => PI)
+  return {
+    player: [cx - 0.39, 0, cz + 0.3],
+    partner: [cx + 0.39, 0, cz + 0.3],
+    playerFacing: Math.PI,
+    partnerFacing: Math.PI,
+  };
 }
 
 export function getCoupleSideBySidePositions(

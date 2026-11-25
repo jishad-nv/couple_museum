@@ -11,10 +11,19 @@ import {
   GALLERY_CENTER,
   GALLERY_INNER_RADIUS,
   GALLERY_OUTER_RADIUS,
+  SECRET_ARRIVAL_POS,
+  SECRET_DOOR_POS,
+  SECRET_LOVESEAT_POS,
+  SECRET_RETURN_POS,
   THEATRE_SIDE_SEATS,
   THEATRE_VIP_SEAT_POS,
   WATERFALL_CENTER,
   WATERFALL_POND_RADIUS,
+  WEDDING_ALTAR_CENTER,
+  WEDDING_ARRIVAL_POS,
+  WEDDING_DOOR_POS,
+  WEDDING_GUEST_SEATS,
+  WEDDING_RETURN_POS,
   clampCameraDistance,
   clampCameraPitch,
   computeSeatAlignment,
@@ -22,9 +31,10 @@ import {
   findNearestBench,
   getCoupleSideBySidePositions,
   getDanceCouplePositions,
+  getWeddingCeremonyPose,
 } from './museumLayout';
 
-test('detectMuseumRoom identifies exterior, entrance, gallery, cinema, and garden accurately', () => {
+test('detectMuseumRoom identifies exterior, entrance, gallery, cinema, garden, secret, and wedding accurately', () => {
   assert.equal(detectMuseumRoom(0, 12.5), 'exterior');
   assert.equal(detectMuseumRoom(0, 4.1), 'exterior');
   assert.equal(detectMuseumRoom(0, 0.8), 'entrance');
@@ -33,6 +43,10 @@ test('detectMuseumRoom identifies exterior, entrance, gallery, cinema, and garde
   assert.equal(detectMuseumRoom(-10, -20), 'gallery');
   assert.equal(detectMuseumRoom(0, -45), 'cinema');
   assert.equal(detectMuseumRoom(25, -38), 'garden');
+  assert.equal(detectMuseumRoom(SECRET_ARRIVAL_POS[0], SECRET_ARRIVAL_POS[2]), 'secret');
+  assert.equal(detectMuseumRoom(SECRET_RETURN_POS[0], SECRET_RETURN_POS[2]), 'gallery');
+  assert.equal(detectMuseumRoom(WEDDING_ARRIVAL_POS[0], WEDDING_ARRIVAL_POS[2]), 'wedding');
+  assert.equal(detectMuseumRoom(WEDDING_RETURN_POS[0], WEDDING_RETURN_POS[2]), 'gallery');
 });
 
 test('clampCameraDistance and clampCameraPitch enforce comfortable bounds', () => {
@@ -45,11 +59,13 @@ test('clampCameraDistance and clampCameraPitch enforce comfortable bounds', () =
   assert.equal(clampCameraPitch(0.35), 0.35);
 });
 
-test('GARDEN_DOOR_POS sits cleanly on circular gallery perimeter', () => {
-  const dx = GARDEN_DOOR_POS[0] - GALLERY_CENTER[0];
-  const dz = GARDEN_DOOR_POS[2] - GALLERY_CENTER[2];
-  const radius = Math.hypot(dx, dz);
-  assert.ok(Math.abs(radius - GALLERY_OUTER_RADIUS) < 0.2);
+test('GARDEN_DOOR_POS, SECRET_DOOR_POS, and WEDDING_DOOR_POS sit cleanly on circular gallery perimeter', () => {
+  for (const doorPos of [GARDEN_DOOR_POS, SECRET_DOOR_POS, WEDDING_DOOR_POS]) {
+    const dx = doorPos[0] - GALLERY_CENTER[0];
+    const dz = doorPos[2] - GALLERY_CENTER[2];
+    const radius = Math.hypot(dx, dz);
+    assert.ok(Math.abs(radius - GALLERY_OUTER_RADIUS) < 0.2);
+  }
 });
 
 test('getCoupleSideBySidePositions places couple symmetrically without overlap', () => {
@@ -61,7 +77,7 @@ test('getCoupleSideBySidePositions places couple symmetrically without overlap',
   assert.ok(Math.abs(dist - 0.76) < 0.001);
 });
 
-test('computeSeatAlignment seats both characters side by side cleanly on cushion without overlap', () => {
+test('computeSeatAlignment seats both characters side by side cleanly on cushion without overlap across all rooms', () => {
   assert.ok(BENCH_CUSHION_TOP_Y > 0.42 && BENCH_CUSHION_TOP_Y < 0.5);
   assert.ok(BENCH_SEAT_LOCAL_Z < 0 && BENCH_SEAT_LOCAL_Z > -0.1);
 
@@ -73,6 +89,17 @@ test('computeSeatAlignment seats both characters side by side cleanly on cushion
   assert.ok(Math.abs(partnerSep - 0.68) < 0.001);
   assert.ok(aligned.player[2] > THEATRE_VIP_SEAT_POS[2]);
   assert.ok(aligned.exitPos[2] < THEATRE_VIP_SEAT_POS[2] - 0.7);
+
+  const secretSeat = computeSeatAlignment(SECRET_LOVESEAT_POS, 0, 0.34);
+  assert.equal(detectMuseumRoom(secretSeat.exitPos[0], secretSeat.exitPos[2]), 'secret');
+
+  for (const seat of WEDDING_GUEST_SEATS) {
+    const wAligned = computeSeatAlignment(seat.position, seat.rotation, 0.34);
+    assert.equal(detectMuseumRoom(wAligned.exitPos[0], wAligned.exitPos[2]), 'wedding');
+    // Wedding guest pews stay completely clear of the 2.5m central aisle runner
+    const distFromAisleCenter = Math.abs(seat.position[0] - WEDDING_ALTAR_CENTER[0]);
+    assert.ok(distFromAisleCenter > 2.4, `${seat.id} should stay clear of central wedding aisle`);
+  }
 });
 
 test('findNearestBench strictly resolves the closest bench inside interaction radius', () => {
@@ -96,9 +123,22 @@ test('garden benches stay completely clear of the central waterfall pond collide
   }
 });
 
-test('theatre VIP seating and door positions keep North screen opposite South entrance', () => {
-  assert.equal(detectMuseumRoom(0, -47.5), 'cinema');
-  assert.equal(detectMuseumRoom(0, -38.5), 'gallery');
+test('getWeddingCeremonyPose frames vows, hug, aisle_walk, and celebrating poses without overlap', () => {
+  const aisle = getWeddingCeremonyPose('aisle_walk');
+  assert.equal(aisle.playerFacing, Math.PI);
+  assert.equal(aisle.partnerFacing, Math.PI);
+
+  const vows = getWeddingCeremonyPose('vows');
+  const vowsDist = Math.hypot(vows.player[0] - vows.partner[0], vows.player[2] - vows.partner[2]);
+  assert.ok(vowsDist > 0.7 && vowsDist < 1.2);
+  assert.ok(Math.abs(Math.abs(vows.playerFacing - vows.partnerFacing) - Math.PI) < 0.01);
+
+  const hug = getWeddingCeremonyPose('hug');
+  const hugDist = Math.hypot(hug.player[0] - hug.partner[0], hug.player[2] - hug.partner[2]);
+  assert.ok(hugDist > 0.45 && hugDist < vowsDist);
+
+  const celeb = getWeddingCeremonyPose('celebrating', 1.2);
+  assert.equal(detectMuseumRoom(celeb.player[0], celeb.player[2]), 'wedding');
 });
 
 test('DANCE_SPOT_POS sits cleanly in open gallery clear of central pedestal and keeps partners non-clipping', () => {
@@ -115,7 +155,6 @@ test('DANCE_SPOT_POS sits cleanly in open gallery clear of central pedestal and 
     pose.player[2] - pose.partner[2]
   );
   assert.ok(Math.abs(separation - DANCE_PARTNER_SPACING) < 0.001);
-  // Facing angles should be opposite (PI radians apart)
   let angleDiff = Math.abs(pose.playerFacing - pose.partnerFacing);
   if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
   assert.ok(Math.abs(angleDiff - Math.PI) < 0.01);

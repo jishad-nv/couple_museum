@@ -1,6 +1,6 @@
 import type { MuseumRoom } from './museumLayout';
 
-export type AudioZoneId = 'gallery' | 'theatre' | 'garden' | 'dance';
+export type AudioZoneId = 'gallery' | 'theatre' | 'garden' | 'dance' | 'secret' | 'wedding';
 
 export interface ChordMeasure {
   bassMidi: number;
@@ -30,6 +30,11 @@ export function roomToAudioZone(room: MuseumRoom, isDancing = false): AudioZoneI
       return 'theatre';
     case 'garden':
       return 'garden';
+    case 'secret':
+    case 'private_chamber':
+      return 'secret';
+    case 'wedding':
+      return 'wedding';
     case 'exterior':
     case 'entrance':
     case 'gallery':
@@ -56,22 +61,26 @@ export function computeZoneMixGains(
   isMuted: boolean
 ): Record<AudioZoneId, number> {
   if (!isMusicPlaying || isMuted) {
-    return { gallery: 0, theatre: 0, garden: 0, dance: 0 };
+    return { gallery: 0, theatre: 0, garden: 0, dance: 0, secret: 0, wedding: 0 };
   }
   return {
     gallery: activeZone === 'gallery' ? 1 : 0,
     theatre: activeZone === 'theatre' ? 1 : 0,
     garden: activeZone === 'garden' ? 1 : 0,
     dance: activeZone === 'dance' ? 1 : 0,
+    secret: activeZone === 'secret' ? 1 : 0,
+    wedding: activeZone === 'wedding' ? 1 : 0,
   };
 }
 
 /**
- * Four bespoke romantic instrumental progressions:
- * - gallery: Warm felt piano waltz + chamber strings in F Major (72 BPM, 3/4 feel)
- * - theatre: Sweeping velvet cinema strings + singing cello in Ab Major (58 BPM, 4/4 feel)
- * - garden: Nocturnal harp & celesta reverie in D Major (64 BPM, 4/4 feel)
- * - dance: Intimate ballroom waltz in C Major (84 BPM, 3/4 feel)
+ * Six bespoke romantic instrumental progressions:
+ * - gallery: Warm felt piano waltz + chamber strings in F Major (72 BPM)
+ * - theatre: Sweeping velvet cinema strings + singing cello in Ab Major (58 BPM)
+ * - garden: Nocturnal harp & celesta reverie in D Major (64 BPM)
+ * - dance: Intimate ballroom waltz in C Major (84 BPM)
+ * - secret: Whispered midnight celesta & felt piano in Eb Major (56 BPM)
+ * - wedding: Sunlit destination wedding strings, harp & piano in G Major (76 BPM)
  */
 export const AUDIO_TRACKS: Record<AudioZoneId, ZoneTrackSpec> = {
   gallery: {
@@ -283,6 +292,76 @@ export const AUDIO_TRACKS: Record<AudioZoneId, ZoneTrackSpec> = {
         padMidis: [55, 59, 62, 65],
         arpMidis: [55, 59, 62, 67, 65, 62],
         melodyMidis: [74, null, null, 71, 72, null],
+      },
+    ],
+  },
+  secret: {
+    id: 'secret',
+    title: 'Candlelit Secret Sanctuary',
+    subtitle: 'Whispered Felt Piano & Warm Celesta in Eb Major',
+    tempoBpm: 56,
+    stepsPerChord: 4,
+    baseGain: 0.76,
+    padCutoffHz: 780,
+    chords: [
+      {
+        bassMidi: 39,
+        padMidis: [51, 55, 58, 62],
+        arpMidis: [51, 58, 63, 67],
+        melodyMidis: [70, null, 74, null],
+      },
+      {
+        bassMidi: 43,
+        padMidis: [50, 55, 58, 62],
+        arpMidis: [50, 55, 62, 67],
+        melodyMidis: [75, null, 74, 70],
+      },
+      {
+        bassMidi: 44,
+        padMidis: [51, 56, 60, 63],
+        arpMidis: [51, 56, 60, 67],
+        melodyMidis: [72, null, 75, null],
+      },
+      {
+        bassMidi: 46,
+        padMidis: [53, 58, 62, 65],
+        arpMidis: [53, 58, 62, 65],
+        melodyMidis: [74, null, 70, null],
+      },
+    ],
+  },
+  wedding: {
+    id: 'wedding',
+    title: 'Morning Vows & Forever March',
+    subtitle: 'Sunlit Wedding Harp, Strings & Piano in G Major',
+    tempoBpm: 76,
+    stepsPerChord: 4,
+    baseGain: 0.85,
+    padCutoffHz: 1240,
+    chords: [
+      {
+        bassMidi: 43,
+        padMidis: [55, 59, 62, 66],
+        arpMidis: [55, 59, 62, 67],
+        melodyMidis: [74, null, 79, null],
+      },
+      {
+        bassMidi: 50,
+        padMidis: [54, 57, 62, 66],
+        arpMidis: [54, 57, 62, 69],
+        melodyMidis: [78, null, 74, null],
+      },
+      {
+        bassMidi: 48,
+        padMidis: [55, 60, 64, 67],
+        arpMidis: [55, 60, 64, 71],
+        melodyMidis: [76, null, 79, 78],
+      },
+      {
+        bassMidi: 45,
+        padMidis: [57, 60, 64, 69],
+        arpMidis: [57, 60, 64, 69],
+        melodyMidis: [76, null, 74, null],
       },
     ],
   },

@@ -11,7 +11,14 @@ import {
 } from '../utils/audioZones';
 import type { MuseumMusicTrack, MuseumSettings } from '../utils/museumContentTypes';
 
-const ALL_ZONES: readonly AudioZoneId[] = ['gallery', 'theatre', 'garden', 'dance'];
+const ALL_ZONES: readonly AudioZoneId[] = [
+  'gallery',
+  'theatre',
+  'garden',
+  'dance',
+  'secret',
+  'wedding',
+];
 
 interface ZoneBus {
   synthGain: GainNode;
@@ -62,6 +69,8 @@ export function resolveAssignedZoneTrack(
     theatre: settings.theatreMusicTrackId,
     garden: settings.gardenMusicTrackId,
     dance: settings.danceMusicTrackId,
+    secret: settings.secretMusicTrackId || 'track-secret',
+    wedding: settings.weddingMusicTrackId || 'track-wedding',
   };
   const preferredId = zoneIdMap[zone] || settings.defaultMusicTrackId;
   const found =
@@ -273,7 +282,7 @@ function scheduleZoneStep(ctx: AudioContext, bus: ZoneBus, zone: AudioZoneId, wh
 
   const arpMidi = chord.arpMidis[localStep];
   const arpFreq = midiToFreq(arpMidi);
-  if (zone === 'gallery' || zone === 'dance') {
+  if (zone === 'gallery' || zone === 'dance' || zone === 'secret') {
     const accent = localStep === 0 || localStep === 3 ? 0.135 : 0.085;
     triggerFeltPianoNote(ctx, bus.synthGain, arpFreq, when, stepDur * 2.1, accent);
   } else if (zone === 'theatre') {
@@ -285,11 +294,18 @@ function scheduleZoneStep(ctx: AudioContext, bus: ZoneBus, zone: AudioZoneId, wh
   const melodyMidi = chord.melodyMidis[localStep];
   if (melodyMidi !== null) {
     const melFreq = midiToFreq(melodyMidi);
-    if (zone === 'gallery') {
-      triggerFeltPianoNote(ctx, bus.synthGain, melFreq, when, stepDur * 2.6, 0.145);
-    } else if (zone === 'dance') {
+    if (zone === 'gallery' || zone === 'secret') {
+      triggerFeltPianoNote(
+        ctx,
+        bus.synthGain,
+        melFreq,
+        when,
+        stepDur * 2.6,
+        zone === 'secret' ? 0.125 : 0.145
+      );
+    } else if (zone === 'dance' || zone === 'wedding') {
       triggerFeltPianoNote(ctx, bus.synthGain, melFreq, when, stepDur * 2.8, 0.155);
-      triggerHarpCelestaNote(ctx, bus.synthGain, melFreq, when, stepDur * 2.4, 0.07, true);
+      triggerHarpCelestaNote(ctx, bus.synthGain, melFreq, when, stepDur * 2.4, 0.08, true);
     } else if (zone === 'theatre') {
       const melEnv = ctx.createGain();
       const melFilter = ctx.createBiquadFilter();
@@ -362,6 +378,8 @@ export default function BackgroundAudioManager() {
     theatre: 0,
     garden: 0,
     dance: 0,
+    secret: 0,
+    wedding: 0,
   });
 
   // Helper to attach/sync custom audio stream for a zone when a custom audioSrc is assigned
@@ -392,6 +410,8 @@ export default function BackgroundAudioManager() {
       theatre: 0,
       garden: 0,
       dance: 0,
+      secret: 0,
+      wedding: 0,
     };
 
     for (const z of ALL_ZONES) {
@@ -588,6 +608,8 @@ export default function BackgroundAudioManager() {
           theatre: Number((buses.theatre.synthGain.gain.value + buses.theatre.customGain.gain.value).toFixed(3)),
           garden: Number((buses.garden.synthGain.gain.value + buses.garden.customGain.gain.value).toFixed(3)),
           dance: Number((buses.dance.synthGain.gain.value + buses.dance.customGain.gain.value).toFixed(3)),
+          secret: Number((buses.secret.synthGain.gain.value + buses.secret.customGain.gain.value).toFixed(3)),
+          wedding: Number((buses.wedding.synthGain.gain.value + buses.wedding.customGain.gain.value).toFixed(3)),
         },
       };
     }, 100);
@@ -630,6 +652,8 @@ export default function BackgroundAudioManager() {
         theatre: Number((buses.theatre.synthGain.gain.value + buses.theatre.customGain.gain.value).toFixed(3)),
         garden: Number((buses.garden.synthGain.gain.value + buses.garden.customGain.gain.value).toFixed(3)),
         dance: Number((buses.dance.synthGain.gain.value + buses.dance.customGain.gain.value).toFixed(3)),
+        secret: Number((buses.secret.synthGain.gain.value + buses.secret.customGain.gain.value).toFixed(3)),
+        wedding: Number((buses.wedding.synthGain.gain.value + buses.wedding.customGain.gain.value).toFixed(3)),
       },
     };
   }, [currentRoom, isDancing, isMusicPlaying, isMuted, showVideoPlayer, musicTracks, museumSettings]);

@@ -1,31 +1,53 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
+import { isProposalBusy } from '../../utils/proposal';
 
 export default function MobileControls() {
-  const { isMobile, setJoystickInput } = useGameStore();
+  const isMobile = useGameStore((s) => s.isMobile);
+  const setJoystickInput = useGameStore((s) => s.setJoystickInput);
+  const proposalStage = useGameStore((s) => s.proposalStage);
+  const showGuestbookModal = useGameStore((s) => s.showGuestbookModal);
+  const showPhotoViewer = useGameStore((s) => s.showPhotoViewer);
+  const showVideoPlayer = useGameStore((s) => s.showVideoPlayer);
+  const showLoveAlbum = useGameStore((s) => s.showLoveAlbum);
+  const showSecretLetterModal = useGameStore((s) => s.showSecretLetterModal);
+  const showDoYouLoveMeModal = useGameStore((s) => s.showDoYouLoveMeModal);
+  const showLoveQuizModal = useGameStore((s) => s.showLoveQuizModal);
+  const showPrivateMemoryModal = useGameStore((s) => s.showPrivateMemoryModal);
+  const showProposalModal = useGameStore((s) => s.showProposalModal);
+  const showAdminLogin = useGameStore((s) => s.showAdminLogin);
+  const showAdminPanel = useGameStore((s) => s.showAdminPanel);
+
   const joystickRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
   const [joystickActive, setJoystickActive] = useState(false);
-  const joystickCenter = useRef({ x: 0, y: 0 });
-  const joystickSize = 60;
-
-  const handleJoystickStart = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const touch = e.touches[0];
-      const rect = joystickRef.current?.getBoundingClientRect();
-      if (rect) {
-        joystickCenter.current = {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-        };
-      }
-      setJoystickActive(true);
-    },
-    []
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 390
   );
+  const joystickCenter = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const isCompactPhone = viewportWidth <= 420;
+  const joystickSize = isCompactPhone ? 46 : 54;
+  const actionBtnSize = isCompactPhone ? 52 : 58;
+
+  const handleJoystickStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = joystickRef.current?.getBoundingClientRect();
+    if (rect) {
+      joystickCenter.current = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }
+    setJoystickActive(true);
+  }, []);
 
   const handleJoystickMove = useCallback(
     (e: React.TouchEvent) => {
@@ -36,25 +58,19 @@ export default function MobileControls() {
       let dx = touch.clientX - joystickCenter.current.x;
       let dy = touch.clientY - joystickCenter.current.y;
 
-      // Clamp to joystick bounds
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > joystickSize) {
         dx = (dx / dist) * joystickSize;
         dy = (dy / dist) * joystickSize;
       }
 
-      // Normalize to -1 to 1
-      const normalX = dx / joystickSize;
-      const normalY = dy / joystickSize;
+      setJoystickInput({ x: dx / joystickSize, y: dy / joystickSize });
 
-      setJoystickInput({ x: normalX, y: normalY });
-
-      // Move knob visually
       if (knobRef.current) {
         knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
       }
     },
-    [joystickActive, setJoystickInput]
+    [joystickActive, joystickSize, setJoystickInput]
   );
 
   const handleJoystickEnd = useCallback(() => {
@@ -66,7 +82,6 @@ export default function MobileControls() {
   }, [setJoystickInput]);
 
   const handleInteract = useCallback(() => {
-    // Simulate E key press
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
     setTimeout(() => {
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' }));
@@ -80,30 +95,48 @@ export default function MobileControls() {
     }, 150);
   }, []);
 
-  if (!isMobile) return null;
+  const modalOpen =
+    showGuestbookModal ||
+    showPhotoViewer ||
+    showVideoPlayer ||
+    showLoveAlbum ||
+    showSecretLetterModal ||
+    showDoYouLoveMeModal ||
+    showLoveQuizModal ||
+    showPrivateMemoryModal ||
+    showProposalModal ||
+    showAdminLogin ||
+    showAdminPanel;
+
+  if (!isMobile || modalOpen || isProposalBusy(proposalStage)) return null;
 
   return (
-    <div className="ui-overlay" style={{
-      position: 'fixed',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      pointerEvents: 'none',
-      zIndex: 100,
-      touchAction: 'none',
-    }}>
-      {/* Joystick */}
+    <div
+      className="ui-overlay"
+      data-testid="mobile-controls"
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        pointerEvents: 'none',
+        zIndex: 80,
+        touchAction: 'none',
+      }}
+    >
+      {/* Virtual Joystick */}
       <div
         ref={joystickRef}
+        data-testid="mobile-joystick"
         style={{
           position: 'absolute',
-          bottom: 40,
-          left: 40,
-          width: joystickSize * 2 + 20,
-          height: joystickSize * 2 + 20,
+          bottom: 'calc(18px + env(safe-area-inset-bottom))',
+          left: 'calc(14px + env(safe-area-inset-left))',
+          width: joystickSize * 2 + 16,
+          height: joystickSize * 2 + 16,
           borderRadius: '50%',
-          background: 'rgba(255,255,255,0.1)',
-          border: '2px solid rgba(255,255,255,0.3)',
+          background: 'rgba(20, 12, 26, 0.34)',
+          border: '1.5px solid rgba(255, 255, 255, 0.28)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -117,37 +150,41 @@ export default function MobileControls() {
         <div
           ref={knobRef}
           style={{
-            width: 50,
-            height: 50,
+            width: isCompactPhone ? 42 : 48,
+            height: isCompactPhone ? 42 : 48,
             borderRadius: '50%',
-            background: 'rgba(255,255,255,0.4)',
-            border: '2px solid rgba(255,255,255,0.6)',
+            background: 'rgba(255, 245, 232, 0.42)',
+            border: '1.5px solid rgba(255, 255, 255, 0.62)',
             transition: joystickActive ? 'none' : 'transform 0.2s ease',
           }}
         />
       </div>
 
       {/* Action buttons */}
-      <div style={{
-        position: 'absolute',
-        bottom: 40,
-        right: 30,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 15,
-        pointerEvents: 'auto',
-      }}>
-        {/* Interact button */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 'calc(18px + env(safe-area-inset-bottom))',
+          right: 'calc(14px + env(safe-area-inset-right))',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          pointerEvents: 'auto',
+        }}
+      >
         <button
+          type="button"
+          data-testid="btn-mobile-interact"
+          aria-label="Interact"
           onClick={handleInteract}
           style={{
-            width: 60,
-            height: 60,
+            width: actionBtnSize,
+            height: actionBtnSize,
             borderRadius: '50%',
-            background: 'rgba(200, 165, 90, 0.4)',
-            border: '2px solid rgba(200, 165, 90, 0.7)',
+            background: 'rgba(176, 128, 54, 0.56)',
+            border: '2px solid rgba(235, 198, 120, 0.85)',
             color: '#fff',
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: 'bold',
             cursor: 'pointer',
             pointerEvents: 'auto',
@@ -157,17 +194,19 @@ export default function MobileControls() {
           E
         </button>
 
-        {/* Jump button */}
         <button
+          type="button"
+          data-testid="btn-mobile-jump"
+          aria-label="Jump"
           onClick={handleJump}
           style={{
-            width: 60,
-            height: 60,
+            width: actionBtnSize,
+            height: actionBtnSize,
             borderRadius: '50%',
-            background: 'rgba(255, 255, 255, 0.2)',
-            border: '2px solid rgba(255, 255, 255, 0.4)',
+            background: 'rgba(24, 16, 32, 0.45)',
+            border: '1.5px solid rgba(255, 255, 255, 0.4)',
             color: '#fff',
-            fontSize: 20,
+            fontSize: 19,
             cursor: 'pointer',
             pointerEvents: 'auto',
             touchAction: 'none',

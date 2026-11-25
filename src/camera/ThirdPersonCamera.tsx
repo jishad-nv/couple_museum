@@ -29,7 +29,21 @@ export default function ThirdPersonCamera() {
 
   const handlePointerDown = useCallback((e: PointerEvent) => {
     const s = useGameStore.getState();
-    if (s.showGuestbookModal || s.showPhotoViewer || s.showVideoPlayer) return;
+    if (
+      s.showGuestbookModal ||
+      s.showPhotoViewer ||
+      s.showVideoPlayer ||
+      s.showProposalModal ||
+      s.showDoYouLoveMeModal ||
+      s.showLoveQuizModal ||
+      s.showPrivateMemoryModal ||
+      s.showLoveAlbum ||
+      s.showSecretLetterModal ||
+      s.showAdminLogin ||
+      s.showAdminPanel
+    ) {
+      return;
+    }
     const target = e.target as HTMLElement;
     if (target.closest('.ui-overlay')) return;
 
@@ -64,7 +78,21 @@ export default function ThirdPersonCamera() {
 
   const handleWheel = useCallback((e: WheelEvent) => {
     const s = useGameStore.getState();
-    if (s.showGuestbookModal || s.showPhotoViewer || s.showVideoPlayer) return;
+    if (
+      s.showGuestbookModal ||
+      s.showPhotoViewer ||
+      s.showVideoPlayer ||
+      s.showProposalModal ||
+      s.showDoYouLoveMeModal ||
+      s.showLoveQuizModal ||
+      s.showPrivateMemoryModal ||
+      s.showLoveAlbum ||
+      s.showSecretLetterModal ||
+      s.showAdminLogin ||
+      s.showAdminPanel
+    ) {
+      return;
+    }
     e.preventDefault();
     s.setCameraDistance(clampCameraDistance(s.cameraDistance + e.deltaY * 0.004));
   }, []);
@@ -131,61 +159,87 @@ export default function ThirdPersonCamera() {
 
     // Frame the couple midpoint when together so both stay cleanly visible
     const partnerDist = Math.hypot(pPos.x - partnerPos.x, pPos.z - partnerPos.z);
-    const frameCouple = (s.isHoldingHands || s.isSitting || s.activeCoupleSequence !== 'none') && partnerDist < 2.2;
+    const inProposal = s.proposalStage !== 'idle';
+    const inWeddingVows = s.currentRoom === 'wedding' && s.weddingStage === 'vows';
+    const frameCouple =
+      (s.isHoldingHands ||
+        s.isSitting ||
+        s.activeCoupleSequence !== 'none' ||
+        inProposal ||
+        s.currentRoom === 'wedding') &&
+      partnerDist < 3.2;
     const anchorX = frameCouple ? (pPos.x + partnerPos.x) * 0.5 : pPos.x;
     const anchorZ = frameCouple ? (pPos.z + partnerPos.z) * 0.5 : pPos.z;
     const anchorY = pPos.y;
 
     if (s.cameraMode === 'third-person') {
-      const dist = clampCameraDistance(s.cameraDistance);
-      const pitch = clampCameraPitch(s.cameraAngleY);
-      const yaw = s.cameraAngleX;
+      if (inWeddingVows) {
+        // Smooth 3/4 ceremony close-up framing the face-to-face ring clasp & floral wedding arch
+        desiredPos.current.set(anchorX + 0.34, anchorY + 1.38, anchorZ + 2.08);
+        lookTarget.current.set(anchorX, anchorY + 1.08, anchorZ - 0.06);
+      } else {
+        const baseDist = clampCameraDistance(s.cameraDistance);
+        const dist = inProposal ? Math.min(baseDist, 3.6) : baseDist;
+        const pitch = clampCameraPitch(s.cameraAngleY);
+        const yaw = s.cameraAngleX;
 
-      desiredOffset.current.set(
-        Math.sin(yaw) * Math.cos(pitch) * dist,
-        Math.sin(pitch) * dist,
-        Math.cos(yaw) * Math.cos(pitch) * dist
-      );
+        desiredOffset.current.set(
+          Math.sin(yaw) * Math.cos(pitch) * dist,
+          Math.sin(pitch) * dist,
+          Math.cos(yaw) * Math.cos(pitch) * dist
+        );
 
-      rayOrigin.current.set(anchorX, anchorY + 1.45, anchorZ);
-      desiredPos.current.copy(rayOrigin.current).add(desiredOffset.current);
+        rayOrigin.current.set(anchorX, anchorY + (inProposal ? 1.2 : 1.45), anchorZ);
+        desiredPos.current.copy(rayOrigin.current).add(desiredOffset.current);
 
-      // Raycast against architectural walls/doors/pillars so camera never passes through walls
-      rayDir.current.copy(desiredPos.current).sub(rayOrigin.current);
-      const maxRayLen = rayDir.current.length();
-      if (maxRayLen > 0.01) {
-        rayDir.current.divideScalar(maxRayLen);
-        raycaster.current.set(rayOrigin.current, rayDir.current);
-        raycaster.current.far = maxRayLen;
+        // Raycast against architectural walls/doors/pillars so camera never passes through walls
+        rayDir.current.copy(desiredPos.current).sub(rayOrigin.current);
+        const maxRayLen = rayDir.current.length();
+        if (maxRayLen > 0.01) {
+          rayDir.current.divideScalar(maxRayLen);
+          raycaster.current.set(rayOrigin.current, rayDir.current);
+          raycaster.current.far = maxRayLen;
 
-        const colliders = getCameraColliders();
-        if (colliders.length > 0) {
-          const hits = raycaster.current.intersectObjects(colliders, false);
-          if (hits.length > 0 && hits[0].distance < maxRayLen) {
-            // Pull camera forward in front of hit wall, clearing character shoulders without crossing walls
-            const safeDist = Math.max(0.55, hits[0].distance - 0.35);
-            desiredPos.current.copy(rayOrigin.current).addScaledVector(rayDir.current, safeDist);
+          const colliders = getCameraColliders();
+          if (colliders.length > 0) {
+            const hits = raycaster.current.intersectObjects(colliders, false);
+            if (hits.length > 0 && hits[0].distance < maxRayLen) {
+              // Pull camera forward in front of hit wall, clearing character shoulders without crossing walls
+              const safeDist = Math.max(0.55, hits[0].distance - 0.35);
+              desiredPos.current.copy(rayOrigin.current).addScaledVector(rayDir.current, safeDist);
+            }
           }
         }
-      }
 
-      // Clamp height above ground and below indoor ceiling
-      desiredPos.current.y = Math.max(CAMERA_BOUNDS.minHeight, desiredPos.current.y);
-      if (s.currentRoom !== 'exterior' && s.currentRoom !== 'garden') {
-        desiredPos.current.y = Math.min(4.85, desiredPos.current.y);
-      }
+        // Clamp height above ground and below indoor ceiling (exterior, garden, wedding are open-air)
+        desiredPos.current.y = Math.max(CAMERA_BOUNDS.minHeight, desiredPos.current.y);
+        if (
+          s.currentRoom !== 'exterior' &&
+          s.currentRoom !== 'garden' &&
+          s.currentRoom !== 'wedding'
+        ) {
+          desiredPos.current.y = Math.min(4.85, desiredPos.current.y);
+        }
 
-      const lookYOffset =
-        s.currentRoom === 'exterior' ? 1.85 : s.currentRoom === 'garden' ? 1.66 : 1.52;
-      lookTarget.current.set(anchorX, anchorY + lookYOffset, anchorZ);
+        const lookYOffset = inProposal
+          ? s.proposalStage === 'kneeling' || s.proposalStage === 'awaiting_answer'
+            ? 1.08
+            : 1.32
+          : s.currentRoom === 'exterior'
+          ? 1.85
+          : s.currentRoom === 'garden' || s.currentRoom === 'wedding'
+          ? 1.66
+          : 1.52;
+        lookTarget.current.set(anchorX, anchorY + lookYOffset, anchorZ);
+      }
 
       if (currentPosition.current.distanceTo(desiredPos.current) > 10) {
         currentPosition.current.copy(desiredPos.current);
         currentLookAt.current.copy(lookTarget.current);
       } else {
-        const damp = 1 - Math.exp(-9 * delta);
+        const damp = 1 - Math.exp(-(inWeddingVows ? 6.5 : 9) * delta);
         currentPosition.current.lerp(desiredPos.current, damp);
-        currentLookAt.current.lerp(lookTarget.current, 1 - Math.exp(-12 * delta));
+        currentLookAt.current.lerp(lookTarget.current, 1 - Math.exp(-(inWeddingVows ? 8.5 : 12) * delta));
       }
 
       camera.position.copy(currentPosition.current);

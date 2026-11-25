@@ -258,7 +258,114 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
       'Our Eternal Chronicles'
     );
 
-    // 5. Logout revokes token immediately
+    // 5. Secret Room Quiz CRUD, Private Memory CRUD, and monotonic visitor progress + admin reset
+    const unauthReset = await fetch(`${baseUrl}/api/admin/secret/reset-progress`, { method: 'POST' });
+    assert.equal(unauthReset.status, 401);
+
+    const unauthQuizCreate = await fetch(`${baseUrl}/api/admin/secret-quiz`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: 'Unauthorized question?',
+        options: { A: '1', B: '2', C: '3', D: '4' },
+        correctOption: 'A',
+      }),
+    });
+    assert.equal(unauthQuizCreate.status, 401);
+
+    // Monotonic progress guard: cannot collect key or unlock 2nd door before yesConfirmed + quizCompleted
+    const skipAttempt = await fetch(`${baseUrl}/api/secret/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyCollected: true, secondDoorUnlocked: true }),
+    });
+    assert.equal(skipAttempt.status, 200);
+    const skipJson = (await skipAttempt.json()) as {
+      secretProgress: {
+        yesConfirmed: boolean;
+        quizCompleted: boolean;
+        keyCollected: boolean;
+        secondDoorUnlocked: boolean;
+      };
+    };
+    assert.equal(skipJson.secretProgress.yesConfirmed, false);
+    assert.equal(skipJson.secretProgress.keyCollected, false);
+    assert.equal(skipJson.secretProgress.secondDoorUnlocked, false);
+
+    // Valid sequential steps persist
+    await fetch(`${baseUrl}/api/secret/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yesConfirmed: true }),
+    });
+    await fetch(`${baseUrl}/api/secret/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizCompleted: true, keyCollected: true }),
+    });
+    const unlockStep = await fetch(`${baseUrl}/api/secret/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secondDoorUnlocked: true, chamberDiscovered: true }),
+    });
+    const unlockJson = (await unlockStep.json()) as {
+      secretProgress: { secondDoorUnlocked: boolean; chamberDiscovered: boolean };
+    };
+    assert.equal(unlockJson.secretProgress.secondDoorUnlocked, true);
+    assert.equal(unlockJson.secretProgress.chamberDiscovered, true);
+
+    // Authenticated admin updates quiz + adds private memory + resets progress
+    const addQuizRes = await fetch(`${baseUrl}/api/admin/secret-quiz`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bootJson.token}`,
+      },
+      body: JSON.stringify({
+        question: 'Where did we share our midnight tea?',
+        description: 'Look back at winter.',
+        options: { A: 'Terrace', B: 'Station', C: 'Park', D: 'Bookshop' },
+        correctOption: 'A',
+      }),
+    });
+    assert.equal(addQuizRes.status, 201);
+
+    const addPrivRes = await fetch(`${baseUrl}/api/admin/private-memories`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bootJson.token}`,
+      },
+      body: JSON.stringify({
+        kind: 'code',
+        title: 'Secret Signal 11:11',
+        subtitle: 'Admin Test',
+        dateLabel: 'Tonight',
+        body: 'Thinking of you.',
+        secretCode: '11:11-US',
+        photoSrc: upJson.url,
+      }),
+    });
+    assert.equal(addPrivRes.status, 201);
+
+    const resetRes = await fetch(`${baseUrl}/api/admin/secret/reset-progress`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootJson.token}` },
+    });
+    assert.equal(resetRes.status, 200);
+    const resetBundle = (await resetRes.json()) as {
+      bundle: {
+        secretQuiz: Array<{ question: string }>;
+        privateMemories: Array<{ title: string }>;
+        secretProgress: { yesConfirmed: boolean; secondDoorUnlocked: boolean };
+      };
+    };
+    assert.ok(resetBundle.bundle.secretQuiz.some((q) => q.question.includes('midnight tea')));
+    assert.ok(resetBundle.bundle.privateMemories.some((m) => m.title === 'Secret Signal 11:11'));
+    assert.equal(resetBundle.bundle.secretProgress.yesConfirmed, false);
+    assert.equal(resetBundle.bundle.secretProgress.secondDoorUnlocked, false);
+
+    // 6. Logout revokes token immediately
     const logoutRes = await fetch(`${baseUrl}/api/admin/logout`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${bootJson.token}` },

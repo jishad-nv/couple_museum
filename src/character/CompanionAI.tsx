@@ -7,6 +7,7 @@ import {
   DANCE_SPOT_POS,
   computeSeatAlignment,
   getDanceCouplePositions,
+  getWeddingCeremonyPose,
 } from '../utils/museumLayout';
 
 function wrapAngle(angle: number): number {
@@ -24,6 +25,8 @@ export default function CompanionAI() {
 
   const companionAction = useGameStore((s) => s.companionAction);
   const isHoldingHands = useGameStore((s) => s.isHoldingHands);
+  const currentRoom = useGameStore((s) => s.currentRoom);
+  const brideOutfit = useGameStore((s) => s.brideOutfit);
 
   useFrame((_, rawDelta) => {
     if (!groupRef.current) return;
@@ -43,7 +46,27 @@ export default function CompanionAI() {
       currentRotation.current += diff * (1 - Math.exp(-10 * delta));
       state.setCompanionAction('sit');
     }
-    // 2. Synchronized Ballroom Dance Together at Dance Pavilion
+    // 2. Wedding Ceremony Altar Poses (vows, hug, celebrating)
+    else if (
+      state.currentRoom === 'wedding' &&
+      (state.weddingStage === 'vows' ||
+        state.weddingStage === 'hug' ||
+        state.weddingStage === 'celebrating')
+    ) {
+      const pose = getWeddingCeremonyPose(state.weddingStage, state.weddingPhase);
+      targetPos.current.set(pose.partner[0], 0, pose.partner[2]);
+      currentPos.current.lerp(targetPos.current, 1 - Math.exp(-8 * delta));
+      const diff = wrapAngle(pose.partnerFacing - currentRotation.current);
+      currentRotation.current += diff * (1 - Math.exp(-10 * delta));
+      state.setCompanionAction(
+        state.weddingStage === 'celebrating'
+          ? 'celebrate'
+          : state.weddingStage === 'hug'
+          ? 'hug'
+          : 'vows'
+      );
+    }
+    // 3. Synchronized Ballroom Dance Together at Dance Pavilion
     else if (state.isDancing) {
       const pose = getDanceCouplePositions(DANCE_SPOT_POS[0], DANCE_SPOT_POS[2], state.dancePhase);
       targetPos.current.set(pose.partner[0], 0, pose.partner[2]);
@@ -52,9 +75,33 @@ export default function CompanionAI() {
       currentRotation.current += diff * (1 - Math.exp(-10 * delta));
       state.setCompanionAction('dance');
     }
-    // 3. Active Hug or Kiss sequence — face player at calibrated non-clipping spacing
+    // 3b. Active Proposal Sequence — partner moves smoothly to anchor, reacts, accepts, embraces, celebrates
+    else if (state.proposalStage !== 'idle' && state.proposalAnchor) {
+      const anchor = state.proposalAnchor;
+      targetPos.current.set(anchor.partner[0], 0, anchor.partner[2]);
+      currentPos.current.lerp(targetPos.current, 1 - Math.exp(-9 * delta));
+      const diff = wrapAngle(anchor.partnerFacing - currentRotation.current);
+      currentRotation.current += diff * (1 - Math.exp(-12 * delta));
+
+      const distToAnchor = currentPos.current.distanceTo(targetPos.current);
+      if (state.proposalStage === 'approaching') {
+        state.setCompanionAction(distToAnchor > 0.08 ? 'walk' : 'idle');
+      } else if (
+        state.proposalStage === 'kneeling' ||
+        state.proposalStage === 'awaiting_answer'
+      ) {
+        state.setCompanionAction('propose_surprised');
+      } else if (state.proposalStage === 'accepted_standing') {
+        state.setCompanionAction('propose_accept');
+      } else if (state.proposalStage === 'embracing') {
+        state.setCompanionAction('propose_embrace');
+      } else if (state.proposalStage === 'celebrating') {
+        state.setCompanionAction('celebrate');
+      }
+    }
+    // 4. Active Hug or Kiss sequence — face player at calibrated non-clipping spacing
     else if (state.activeCoupleSequence === 'hug' || state.activeCoupleSequence === 'kiss') {
-      const spacing = state.activeCoupleSequence === 'hug' ? 0.54 : 0.45;
+      const spacing = state.activeCoupleSequence === 'hug' ? 0.5 : 0.43;
       targetPos.current.set(
         pPos.x + Math.sin(pRot) * spacing,
         0,
@@ -143,6 +190,8 @@ export default function CompanionAI() {
         isMale={false}
         action={companionAction}
         isHoldingHands={isHoldingHands}
+        weddingMode={currentRoom === 'wedding'}
+        brideOutfit={brideOutfit}
       />
     </group>
   );
