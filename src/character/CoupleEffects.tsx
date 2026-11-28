@@ -79,8 +79,8 @@ export default function CoupleEffects() {
   }, [heartGeo, sparkleGeo, petalGeo, hugMoteGeo, hugRingGeo]);
 
   useFrame((state, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.05);
-    const particleDelta = Math.min(rawDelta, 0.2);
+    const delta = Math.max(0, Math.min(rawDelta, 0.05));
+    const particleDelta = Math.max(0, Math.min(rawDelta, 0.2));
     timeRef.current += delta;
     const t = timeRef.current;
 

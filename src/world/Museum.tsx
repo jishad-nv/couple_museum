@@ -156,7 +156,7 @@ function DoorAutoCloseManager() {
         scriptedWalkTarget: s.scriptedWalk?.target ?? null,
         interactionBusy,
       },
-      Math.min(rawDelta, 0.08)
+      Math.max(0, Math.min(rawDelta, 0.08))
     );
 
     trackersRef.current = nextTrackers;
@@ -181,7 +181,7 @@ function AdaptiveBackground() {
   const fogColorRef = useRef(new THREE.Color('#091124'));
 
   useFrame((_, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.05);
+    const delta = Math.max(0, Math.min(rawDelta, 0.05));
     const s = useGameStore.getState();
     const isWedding = isWeddingAtmosphereActive(s.currentRoom, s.scriptedWalk?.target);
     mixRef.current = THREE.MathUtils.lerp(

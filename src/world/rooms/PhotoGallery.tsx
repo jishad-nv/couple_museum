@@ -212,7 +212,8 @@ export default function PhotoGallery() {
         s.showPasswordModal ||
         s.showProposalModal ||
         s.showBouquetCreator ||
-        s.showGenderModal
+        s.showGenderModal ||
+        !s.hasAnsweredGenderPrompt
       ) {
         return;
       }
@@ -242,7 +243,7 @@ export default function PhotoGallery() {
   }, []);
 
   useFrame((_, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.05);
+    const delta = Math.max(0, Math.min(rawDelta, 0.05));
     const s = useGameStore.getState();
 
     // Animate Theatre doors cleanly with snap when settled

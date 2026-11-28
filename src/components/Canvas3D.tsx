@@ -20,6 +20,14 @@ function detectSoftwareGl(): boolean {
   }
 }
 
+let lastAdvanceTimestampSec = 0;
+
+function advanceMonotonic(advance: (timestamp: number) => void) {
+  const nowSec = performance.now() * 0.001;
+  lastAdvanceTimestampSec = Math.max(lastAdvanceTimestampSec + 0.0001, nowSec);
+  advance(lastAdvanceTimestampSec);
+}
+
 function ViewportCameraSync({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const { camera, advance, setSize } = useThree();
   const isMobile = useGameStore((s) => s.isMobile);
@@ -45,7 +53,7 @@ function ViewportCameraSync({ isSoftwareGl }: { isSoftwareGl: boolean }) {
         }
       }
       if (isSoftwareGl && !(useGameStore.getState().isMobile && useGameStore.getState().isPortrait)) {
-        advance(performance.now() * 0.001);
+        advanceMonotonic(advance);
       }
     };
 
@@ -80,7 +88,6 @@ function SoftwareGlLoop({ paused }: { paused: boolean }) {
     if (paused) return;
     let cancelled = false;
     let timerId = 0;
-    const startMs = performance.now();
 
     const afterDraw = (cb: () => void) => {
       const ctx = gl.getContext() as WebGL2RenderingContext | null;
@@ -108,7 +115,7 @@ function SoftwareGlLoop({ paused }: { paused: boolean }) {
 
     const tick = () => {
       if (cancelled) return;
-      advance((performance.now() - startMs) * 0.001);
+      advanceMonotonic(advance);
       afterDraw(tick);
     };
 

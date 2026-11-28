@@ -83,7 +83,7 @@ export default function CharacterController() {
   useFrame((_, rawDelta) => {
     const rb = rigidBodyRef.current;
     if (!rb) return;
-    const delta = Math.min(rawDelta, 0.08);
+    const delta = Math.max(0, Math.min(rawDelta, 0.08));
 
     const state = useGameStore.getState();
 
@@ -190,7 +190,7 @@ export default function CharacterController() {
 
     // Handle active Bouquet Handover sequence (approaching -> offering -> receiving -> reaction)
     if (state.bouquetHandoverStage !== 'idle' && state.bouquetHandoverAnchor) {
-      const seqDelta = Math.min(rawDelta, 0.5);
+      const seqDelta = Math.max(0, Math.min(rawDelta, 0.5));
       if (state.bouquetHandoverStage !== lastBouquetStageRef.current) {
         lastBouquetStageRef.current = state.bouquetHandoverStage;
         bouquetTimerRef.current = 0;
@@ -308,7 +308,7 @@ export default function CharacterController() {
         scriptedWalkElapsed.current = 0;
         lastScriptedDist.current = Infinity;
       }
-      scriptedWalkElapsed.current += Math.min(rawDelta, 0.25);
+      scriptedWalkElapsed.current += Math.max(0, Math.min(rawDelta, 0.25));
 
       const dx = destX - pos.x;
       const dz = destZ - pos.z;

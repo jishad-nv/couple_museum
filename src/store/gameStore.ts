@@ -91,6 +91,8 @@ const isAutostart =
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).get('autostart') === '1';
 
+let bouquetNoteDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
 export interface JoystickInput {
   x: number;
   y: number;
@@ -1479,6 +1481,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   closeBouquetCreator: () => set({ showBouquetCreator: false }),
   saveCreatedBouquet: (design) => {
+    if (bouquetNoteDismissTimer) {
+      clearTimeout(bouquetNoteDismissTimer);
+      bouquetNoteDismissTimer = null;
+    }
     set({
       createdBouquet: design,
       showBouquetCreator: false,
@@ -1507,6 +1513,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       s.showPasswordModal
     ) {
       return;
+    }
+    if (bouquetNoteDismissTimer) {
+      clearTimeout(bouquetNoteDismissTimer);
+      bouquetNoteDismissTimer = null;
     }
     const giver: PlayerGender = s.playerGender ?? 'girl';
     const anchor = computeBouquetHandoverAnchor(
@@ -1564,14 +1574,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       companionAction: 'idle',
     });
     if (s.showBouquetNoteBanner) {
-      setTimeout(() => {
+      if (bouquetNoteDismissTimer) clearTimeout(bouquetNoteDismissTimer);
+      bouquetNoteDismissTimer = setTimeout(() => {
+        bouquetNoteDismissTimer = null;
         if (get().bouquetHandoverStage === 'idle') {
           set({ showBouquetNoteBanner: false });
         }
       }, 6500);
     }
   },
-  dismissBouquetNote: () => set({ showBouquetNoteBanner: false }),
+  dismissBouquetNote: () => {
+    if (bouquetNoteDismissTimer) {
+      clearTimeout(bouquetNoteDismissTimer);
+      bouquetNoteDismissTimer = null;
+    }
+    set({ showBouquetNoteBanner: false });
+  },
 
   // Admin actions
   setShowAdminLogin: (show) => set({ showAdminLogin: show }),

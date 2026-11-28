@@ -192,7 +192,7 @@ export default function Character({
   };
 
   useFrame((_, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.05);
+    const delta = Math.max(0, Math.min(rawDelta, 0.05));
     timeRef.current += delta;
     const t = timeRef.current;
 

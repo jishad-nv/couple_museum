@@ -17,6 +17,10 @@ export default function MobileControls() {
   const showPrivateMemoryModal = useGameStore((s) => s.showPrivateMemoryModal);
   const showProposalModal = useGameStore((s) => s.showProposalModal);
   const showPasswordModal = useGameStore((s) => s.showPasswordModal);
+  const showGenderModal = useGameStore((s) => s.showGenderModal);
+  const hasAnsweredGenderPrompt = useGameStore((s) => s.hasAnsweredGenderPrompt);
+  const showBouquetCreator = useGameStore((s) => s.showBouquetCreator);
+  const showOutfitCustomizer = useGameStore((s) => s.showOutfitCustomizer);
   const showAdminLogin = useGameStore((s) => s.showAdminLogin);
   const showAdminPanel = useGameStore((s) => s.showAdminPanel);
 
@@ -151,6 +155,10 @@ export default function MobileControls() {
     showPrivateMemoryModal ||
     showProposalModal ||
     showPasswordModal ||
+    showGenderModal ||
+    !hasAnsweredGenderPrompt ||
+    showBouquetCreator ||
+    showOutfitCustomizer ||
     showAdminLogin ||
     showAdminPanel;
 

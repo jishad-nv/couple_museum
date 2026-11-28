@@ -161,7 +161,7 @@ export default function ThirdPersonCamera() {
   ]);
 
   useFrame((_, rawDelta) => {
-    const delta = Math.min(rawDelta, 0.05);
+    const delta = Math.max(0, Math.min(rawDelta, 0.05));
     const s = useGameStore.getState();
     const pPos = s.playerPosition;
     const partnerPos = s.partnerPosition;

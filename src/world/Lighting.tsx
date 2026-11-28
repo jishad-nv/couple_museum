@@ -72,7 +72,7 @@ export default function Lighting() {
   const rankedDistances = useRef<number[]>(new Array(ROOM_POINT_LIGHTS.length).fill(0));
 
   useFrame((_, rawDelta) => {
-    const dt = Math.min(rawDelta, 0.05);
+    const dt = Math.max(0, Math.min(rawDelta, 0.05));
     const s = useGameStore.getState();
 
     revealFactorRef.current = stepEntranceLightFactor(

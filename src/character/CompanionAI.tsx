@@ -36,7 +36,7 @@ export default function CompanionAI() {
 
   useFrame((_, rawDelta) => {
     if (!groupRef.current) return;
-    const delta = Math.min(rawDelta, 0.08);
+    const delta = Math.max(0, Math.min(rawDelta, 0.08));
     const state = useGameStore.getState();
 
     const pPos = state.playerPosition;
@@ -123,7 +123,7 @@ export default function CompanionAI() {
     }
     // 3c. Active Bouquet Handover Sequence — Girl approaches/receives/reacts smoothly
     else if (state.bouquetHandoverStage !== 'idle' && state.bouquetHandoverAnchor) {
-      const seqDelta = Math.min(rawDelta, 0.5);
+      const seqDelta = Math.max(0, Math.min(rawDelta, 0.5));
       const anchor = state.bouquetHandoverAnchor;
       targetPos.current.set(anchor.girlPos[0], 0, anchor.girlPos[2]);
       currentPos.current.lerp(targetPos.current, 1 - Math.exp(-9 * seqDelta));
