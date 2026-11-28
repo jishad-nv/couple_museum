@@ -435,3 +435,36 @@ export async function deleteAdminPrivateMemory(
   const data = await parseJsonOrThrow<{ bundle: MuseumContentBundle }>(res);
   return data.bundle;
 }
+
+export async function verifySecretPassword(password: string): Promise<SecretMysteryProgress> {
+  const res = await fetch('/api/secret/verify-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const data = await parseJsonOrThrow<{ secretProgress: SecretMysteryProgress }>(res);
+  return data.secretProgress;
+}
+
+export async function updateAdminSecretPassword(
+  token: string,
+  password: string,
+  confirmPassword: string
+): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/secret-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ password, confirmPassword }),
+  });
+  const data = await parseJsonOrThrow<{ ok: boolean; bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}
+
+export async function resetAdminSecretPassword(token: string): Promise<MuseumContentBundle> {
+  const res = await fetch('/api/admin/secret-password', {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+  const data = await parseJsonOrThrow<{ ok: boolean; bundle: MuseumContentBundle }>(res);
+  return data.bundle;
+}

@@ -16,6 +16,8 @@ import {
   isSuitableProposalLocation,
   shouldShowCoupleToolbar,
 } from '../../utils/proposal';
+import { isGardenSeatAlbumAvailable } from '../../utils/loveAlbum';
+import { hasBouquetLetter } from '../../utils/bouquet';
 
 const ROOM_LABELS: Record<string, string> = {
   exterior: 'Museum Forecourt',
@@ -23,8 +25,8 @@ const ROOM_LABELS: Record<string, string> = {
   gallery: 'Circular Gallery',
   cinema: 'Memory Theatre',
   garden: 'Beauty of Garden',
-  secret: 'Our Secret Room',
-  private_chamber: 'Our Private Memories',
+  secret: 'Pre-Secret Room',
+  private_chamber: 'Our Secret Room',
   wedding: 'Our Wedding Day',
 };
 
@@ -60,6 +62,7 @@ export default function HUD() {
   const isHoldingHands = useGameStore((s) => s.isHoldingHands);
   const isWalkingTogether = useGameStore((s) => s.isWalkingTogether);
   const isSitting = useGameStore((s) => s.isSitting);
+  const sittingBenchPosition = useGameStore((s) => s.sittingBenchPosition);
   const isDancing = useGameStore((s) => s.isDancing);
   const scriptedWalk = useGameStore((s) => s.scriptedWalk);
   const activeCoupleSequence = useGameStore((s) => s.activeCoupleSequence);
@@ -71,6 +74,7 @@ export default function HUD() {
   const museumSettings = useGameStore((s) => s.museumSettings);
   const cameraMode = useGameStore((s) => s.cameraMode);
   const isMobile = useGameStore((s) => s.isMobile);
+  const isPortrait = useGameStore((s) => s.isPortrait);
   const showControls = useGameStore((s) => s.showControls);
   const showGuestbookModal = useGameStore((s) => s.showGuestbookModal);
   const showPhotoViewer = useGameStore((s) => s.showPhotoViewer);
@@ -89,11 +93,20 @@ export default function HUD() {
   const secretProgress = useGameStore((s) => s.secretProgress);
   const secretHintBanner = useGameStore((s) => s.secretHintBanner);
   const weddingStage = useGameStore((s) => s.weddingStage);
+  const cakeCuttingStage = useGameStore((s) => s.cakeCuttingStage);
   const weddingPhotoFlash = useGameStore((s) => s.weddingPhotoFlash);
   const weddingBannerMessage = useGameStore((s) => s.weddingBannerMessage);
   const showAdminLogin = useGameStore((s) => s.showAdminLogin);
   const showAdminPanel = useGameStore((s) => s.showAdminPanel);
+  const showPasswordModal = useGameStore((s) => s.showPasswordModal);
   const adminToken = useGameStore((s) => s.adminToken);
+  const playerGender = useGameStore((s) => s.playerGender);
+  const hasAnsweredGenderPrompt = useGameStore((s) => s.hasAnsweredGenderPrompt);
+  const showGenderModal = useGameStore((s) => s.showGenderModal);
+  const showBouquetCreator = useGameStore((s) => s.showBouquetCreator);
+  const createdBouquet = useGameStore((s) => s.createdBouquet);
+  const bouquetHandoverStage = useGameStore((s) => s.bouquetHandoverStage);
+  const showBouquetNoteBanner = useGameStore((s) => s.showBouquetNoteBanner);
 
   const toggleMusic = useGameStore((s) => s.toggleMusic);
   const toggleMute = useGameStore((s) => s.toggleMute);
@@ -119,9 +132,9 @@ export default function HUD() {
   const exchangeWeddingVows = useGameStore((s) => s.exchangeWeddingVows);
   const hugAtWedding = useGameStore((s) => s.hugAtWedding);
   const celebrateWedding = useGameStore((s) => s.celebrateWedding);
+  const startCakeCutting = useGameStore((s) => s.startCakeCutting);
   const startScriptedWalk = useGameStore((s) => s.startScriptedWalk);
   const openMemory = useGameStore((s) => s.openMemory);
-  const openAlbumFromMemory = useGameStore((s) => s.openAlbumFromMemory);
   const setShowLoveAlbum = useGameStore((s) => s.setShowLoveAlbum);
   const setShowGuestbookModal = useGameStore((s) => s.setShowGuestbookModal);
   const toggleHoldHands = useGameStore((s) => s.toggleHoldHands);
@@ -137,15 +150,27 @@ export default function HUD() {
   const toggleCoupleToolbarHidden = useGameStore((s) => s.toggleCoupleToolbarHidden);
   const setShowAdminLogin = useGameStore((s) => s.setShowAdminLogin);
   const setShowAdminPanel = useGameStore((s) => s.setShowAdminPanel);
+  const setShowGenderModal = useGameStore((s) => s.setShowGenderModal);
+  const openBouquetCreator = useGameStore((s) => s.openBouquetCreator);
+  const startGiveBouquet = useGameStore((s) => s.startGiveBouquet);
+  const dismissBouquetNote = useGameStore((s) => s.dismissBouquetNote);
 
-  const [isNarrow, setIsNarrow] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  const [viewport, setViewport] = useState(() =>
+    typeof window !== 'undefined'
+      ? { width: window.innerWidth, height: window.innerHeight }
+      : { width: 1440, height: 900 }
   );
 
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth <= 768);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const syncViewport = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', syncViewport);
+    window.addEventListener('orientationchange', syncViewport);
+    return () => {
+      window.removeEventListener('resize', syncViewport);
+      window.removeEventListener('orientationchange', syncViewport);
+    };
   }, []);
 
   // Discreet private keyboard shortcut (Ctrl+Shift+A / Cmd+Shift+A) for Curator access
@@ -169,6 +194,11 @@ export default function HUD() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  if (isMobile && isPortrait) return null;
+
+  const isLandscapeMobile =
+    isMobile && viewport.width > viewport.height && viewport.height <= 520;
+  const isNarrow = viewport.width <= 768;
   const compact = isMobile || isNarrow;
   const modalOpen =
     showGuestbookModal ||
@@ -180,9 +210,13 @@ export default function HUD() {
     showLoveQuizModal ||
     showPrivateMemoryModal ||
     showProposalModal ||
+    showPasswordModal ||
+    showGenderModal ||
+    !hasAnsweredGenderPrompt ||
+    showBouquetCreator ||
     showAdminLogin ||
     showAdminPanel;
-  const proposalBusy = isProposalBusy(proposalStage);
+  const proposalBusy = isProposalBusy(proposalStage) || bouquetHandoverStage !== 'idle';
   const showCoupleControls = shouldShowCoupleToolbar(currentRoom, modalOpen);
   const canPropose = isSuitableProposalLocation(currentRoom, playerPosition, {
     isSitting,
@@ -190,11 +224,18 @@ export default function HUD() {
     proposalStage,
     activeCoupleSequence,
     modalOpen,
-    secretRoomUnlocked: secretProgress.secretDoorUnlocked,
+    secretRoomUnlocked: secretProgress.secondDoorUnlocked,
   });
   const activeZone = roomToAudioZone(currentRoom, isDancing);
   const activeTrack = resolveAssignedZoneTrack(activeZone, musicTracks, museumSettings);
   const danceQueued = isDancing || scriptedWalk?.onArrive === 'dance_together';
+  const showGardenAlbumButton = isGardenSeatAlbumAvailable({
+    currentRoom,
+    isSitting,
+    sittingBenchPosition,
+    playerPosition,
+    modalOpen,
+  });
 
   const handleOpenMainDoor = () => {
     unlockBackgroundAudio();
@@ -275,7 +316,9 @@ export default function HUD() {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: compact
+            padding: isLandscapeMobile
+              ? 'calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 6px calc(12px + env(safe-area-inset-left))'
+              : compact
               ? 'calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 8px calc(10px + env(safe-area-inset-left))'
               : '16px 22px',
           }}
@@ -304,9 +347,9 @@ export default function HUD() {
               <div
                 data-testid="hud-golden-key-badge"
                 title={
-                  secretProgress.secretDoorUnlocked
+                  secretProgress.secondDoorUnlocked
                     ? 'Golden Key — Secret Room unlocked'
-                    : 'Golden Key collected — approach Secret Room entrance and select UNLOCK SECRET ROOM'
+                    : 'Golden Key collected — approach the inner Secret Room door'
                 }
                 style={{
                   background: 'linear-gradient(135deg, rgba(114, 78, 24, 0.92), rgba(68, 44, 14, 0.88))',
@@ -406,6 +449,31 @@ export default function HUD() {
               {cameraMode === 'third-person' ? '👁' : '👤'}
             </button>
 
+            <button
+              type="button"
+              data-testid="btn-character-settings"
+              aria-label={`Character settings (currently ${playerGender === 'boy' ? 'Boy' : 'Girl'})`}
+              title="Change character selection (Girl / Boy)"
+              onClick={() => setShowGenderModal(true)}
+              style={{
+                height: 36,
+                padding: compact ? '0 10px' : '0 12px',
+                borderRadius: 18,
+                background: 'rgba(20, 13, 28, 0.86)',
+                border: '1px solid rgba(200, 165, 90, 0.36)',
+                color: '#f7efd8',
+                fontSize: compact ? 11 : 12,
+                fontFamily: 'Georgia, serif',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              <span aria-hidden="true">⚙</span>
+              <span>{playerGender === 'boy' ? 'Boy' : 'Girl'}</span>
+            </button>
+
             {!compact && (
               <button
                 type="button"
@@ -439,8 +507,12 @@ export default function HUD() {
             onClick={toggleCoupleToolbarHidden}
             style={{
               position: 'fixed',
-              top: 'calc(58px + env(safe-area-inset-top))',
-              left: 'calc(10px + env(safe-area-inset-left))',
+              top: isLandscapeMobile
+                ? 'calc(48px + env(safe-area-inset-top))'
+                : 'calc(58px + env(safe-area-inset-top))',
+              left: isLandscapeMobile
+                ? 'calc(12px + env(safe-area-inset-left))'
+                : 'calc(10px + env(safe-area-inset-left))',
               height: 34,
               padding: '0 12px',
               borderRadius: 12,
@@ -470,11 +542,18 @@ export default function HUD() {
             data-testid="mobile-couple-toolbar"
             style={{
               position: 'fixed',
-              top: 'calc(58px + env(safe-area-inset-top))',
-              left: 'calc(10px + env(safe-area-inset-left))',
-              right: 'calc(10px + env(safe-area-inset-right))',
-              height: 46,
-              padding: '4px 6px',
+              top: isLandscapeMobile
+                ? 'calc(48px + env(safe-area-inset-top))'
+                : 'calc(58px + env(safe-area-inset-top))',
+              left: isLandscapeMobile
+                ? 'calc(12px + env(safe-area-inset-left))'
+                : 'calc(10px + env(safe-area-inset-left))',
+              right: isLandscapeMobile ? 'auto' : 'calc(10px + env(safe-area-inset-right))',
+              maxWidth: isLandscapeMobile
+                ? 'min(480px, calc(100vw - 230px - env(safe-area-inset-left) - env(safe-area-inset-right)))'
+                : 'none',
+              height: isLandscapeMobile ? 42 : 46,
+              padding: '3px 6px',
               borderRadius: 14,
               border: '1px solid rgba(200, 165, 90, 0.36)',
               background: 'rgba(20, 12, 26, 0.88)',
@@ -684,7 +763,11 @@ export default function HUD() {
           data-testid="secret-hint-banner"
           style={{
             position: 'fixed',
-            top: compact
+            top: isLandscapeMobile
+              ? showCoupleControls && !coupleToolbarHidden
+                ? 'calc(96px + env(safe-area-inset-top))'
+                : 'calc(50px + env(safe-area-inset-top))'
+              : compact
               ? showCoupleControls && !coupleToolbarHidden
                 ? 'calc(112px + env(safe-area-inset-top))'
                 : 'calc(60px + env(safe-area-inset-top))'
@@ -699,7 +782,9 @@ export default function HUD() {
             fontFamily: 'Georgia, serif',
             fontSize: compact ? 11.5 : 13,
             textAlign: 'center',
-            maxWidth: 'min(540px, calc(100vw - 36px))',
+            maxWidth: isLandscapeMobile
+              ? 'min(440px, calc(100vw - 260px))'
+              : 'min(540px, calc(100vw - 36px))',
             boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
             pointerEvents: 'none',
             zIndex: 56,
@@ -715,7 +800,11 @@ export default function HUD() {
           data-testid="wedding-banner"
           style={{
             position: 'fixed',
-            top: compact ? 'calc(60px + env(safe-area-inset-top))' : 66,
+            top: isLandscapeMobile
+              ? 'calc(50px + env(safe-area-inset-top))'
+              : compact
+              ? 'calc(60px + env(safe-area-inset-top))'
+              : 66,
             left: '50%',
             transform: 'translateX(-50%)',
             background: 'rgba(28, 17, 32, 0.9)',
@@ -726,7 +815,9 @@ export default function HUD() {
             fontFamily: 'Georgia, serif',
             fontSize: compact ? 11.5 : 13,
             textAlign: 'center',
-            maxWidth: 'min(520px, calc(100vw - 40px))',
+            maxWidth: isLandscapeMobile
+              ? 'min(440px, calc(100vw - 260px))'
+              : 'min(520px, calc(100vw - 40px))',
             boxShadow: '0 10px 28px rgba(0, 0, 0, 0.35)',
             pointerEvents: 'none',
             zIndex: 55,
@@ -743,11 +834,27 @@ export default function HUD() {
           data-testid="side-action-dock"
           style={{
             position: 'fixed',
-            right: compact ? 'calc(10px + env(safe-area-inset-right))' : 20,
-            top: compact ? 'calc(112px + env(safe-area-inset-top))' : '50%',
+            right: isLandscapeMobile
+              ? 'calc(12px + env(safe-area-inset-right))'
+              : compact
+              ? 'calc(10px + env(safe-area-inset-right))'
+              : 20,
+            top: isLandscapeMobile
+              ? 'calc(48px + env(safe-area-inset-top))'
+              : compact
+              ? 'calc(112px + env(safe-area-inset-top))'
+              : '50%',
             transform: compact ? 'none' : 'translateY(-50%)',
-            width: compact ? 'min(176px, calc(100vw - 20px))' : 228,
-            maxHeight: compact ? 'calc(100vh - 280px)' : 'calc(100vh - 96px)',
+            width: isLandscapeMobile
+              ? 'min(192px, calc(100vw - 24px))'
+              : compact
+              ? 'min(176px, calc(100vw - 20px))'
+              : 228,
+            maxHeight: isLandscapeMobile
+              ? 'calc(100dvh - 124px - env(safe-area-inset-top) - env(safe-area-inset-bottom))'
+              : compact
+              ? 'calc(100dvh - 280px)'
+              : 'calc(100vh - 96px)',
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
@@ -811,29 +918,19 @@ export default function HUD() {
           {nearbyInteractable === 'secret-door' && (
             <button
               type="button"
-              data-testid={
-                secretProgress.secretDoorUnlocked
-                  ? 'btn-enter-secret-room'
-                  : 'btn-unlock-secret-room'
-              }
+              data-testid="btn-enter-pre-secret-room"
               onClick={() => {
                 unlockBackgroundAudio();
                 enterSecretRoom();
               }}
               style={{
                 ...sideButtonBase,
-                background: secretProgress.keyCollected
-                  ? 'linear-gradient(135deg, rgba(154, 108, 38, 0.96), rgba(96, 62, 18, 0.96))'
-                  : 'linear-gradient(135deg, rgba(96, 36, 62, 0.94), rgba(52, 18, 34, 0.94))',
+                background: 'linear-gradient(135deg, rgba(116, 44, 74, 0.94), rgba(64, 22, 42, 0.94))',
                 border: `1px solid ${COLORS.goldLight}`,
                 color: '#fff6ee',
               }}
             >
-              <span>
-                {secretProgress.secretDoorUnlocked
-                  ? 'ENTER SECRET ROOM'
-                  : 'UNLOCK SECRET ROOM'}
-              </span>
+              <span>ENTER PRE-SECRET ROOM</span>
               <span style={{ fontSize: 10, opacity: 0.85 }}>[E]</span>
             </button>
           )}
@@ -906,10 +1003,9 @@ export default function HUD() {
           )}
 
           {(nearbyInteractable === 'reward-box' ||
-            (currentRoom === 'gallery' &&
+            (currentRoom === 'secret' &&
               showKeyRewardPrompt &&
-              secretProgress.quizCompleted &&
-              !secretProgress.keyCollected)) && (
+              secretProgress.quizCompleted)) && (
             <div
               data-testid="reward-key-prompt-card"
               style={{
@@ -933,7 +1029,7 @@ export default function HUD() {
                 }}
               >
                 {secretProgress.keyCollected
-                  ? 'GOLDEN KEY COLLECTED ❤️'
+                  ? 'REWARD BOX OPENED · LETTER READY ❤️'
                   : secretProgress.quizCompleted
                   ? 'THE REWARD BOX OPENED ❤️'
                   : 'REWARD BOX SEALED — PASS THE QUIZ FIRST'}
@@ -951,7 +1047,23 @@ export default function HUD() {
                     color: '#fffaf0',
                   }}
                 >
-                  COLLECT KEY 🔑
+                  OPEN BOX &amp; COLLECT KEY 🔑
+                </button>
+              )}
+              {secretProgress.quizCompleted && (
+                <button
+                  type="button"
+                  data-testid="btn-open-reward-letter"
+                  onClick={() => setShowSecretLetterModal(true)}
+                  style={{
+                    ...sideButtonBase,
+                    justifyContent: 'center',
+                    background: 'linear-gradient(135deg, rgba(145, 76, 48, 0.95), rgba(86, 42, 24, 0.95))',
+                    border: `1px solid ${COLORS.goldLight}`,
+                    color: '#fff8ec',
+                  }}
+                >
+                  VIEW SECRET LETTER ✉
                 </button>
               )}
             </div>
@@ -960,18 +1072,18 @@ export default function HUD() {
           {nearbyInteractable === 'private-door' && (
             <button
               type="button"
-              data-testid="btn-unlock-special-memories"
+              data-testid="btn-enter-secret-room"
               onClick={unlockOrEnterPrivateChamber}
               style={{
                 ...sideButtonBase,
-                background: secretProgress.keyCollected
+                background: secretProgress.secondDoorUnlocked
                   ? 'linear-gradient(135deg, rgba(154, 108, 38, 0.96), rgba(96, 62, 18, 0.96))'
-                  : 'linear-gradient(135deg, rgba(56, 30, 50, 0.94), rgba(30, 16, 28, 0.94))',
+                  : 'linear-gradient(135deg, rgba(72, 30, 58, 0.96), rgba(36, 16, 34, 0.96))',
                 border: `1px solid ${COLORS.goldLight}`,
                 color: '#fff8ec',
               }}
             >
-              <span>UNLOCK SPECIAL MEMORIES</span>
+              <span>ENTER SECRET ROOM</span>
               <span style={{ fontSize: 10, opacity: 0.85 }}>[E]</span>
             </button>
           )}
@@ -1023,7 +1135,7 @@ export default function HUD() {
                   color: '#fff6ea',
                 }}
               >
-                <span>RETURN TO SECRET ROOM</span>
+                <span>RETURN TO PRE-SECRET ROOM</span>
                 <span style={{ fontSize: 10, opacity: 0.85 }}>
                   {nearbyInteractable === 'private-chamber-exit' ? '[E]' : '←'}
                 </span>
@@ -1065,6 +1177,48 @@ export default function HUD() {
             </button>
           )}
 
+          {nearbyInteractable === 'bouquet-station' && (
+            <button
+              type="button"
+              data-testid="btn-create-bouquet"
+              onClick={openBouquetCreator}
+              style={{
+                ...sideButtonBase,
+                background: 'linear-gradient(135deg, rgba(154, 48, 82, 0.95), rgba(96, 28, 52, 0.95))',
+                border: `1px solid ${COLORS.goldLight}`,
+                color: '#fff8ec',
+              }}
+            >
+              <span>CREATE A BOUQUET</span>
+              <span style={{ fontSize: 10, opacity: 0.9 }}>[E]</span>
+            </button>
+          )}
+
+          {createdBouquet && !isSitting && !isDancing && cakeCuttingStage === 'idle' && (
+            <button
+              type="button"
+              data-testid="btn-give-bouquet"
+              disabled={bouquetHandoverStage !== 'idle' || proposalBusy}
+              onClick={startGiveBouquet}
+              style={{
+                ...sideButtonBase,
+                background:
+                  bouquetHandoverStage !== 'idle'
+                    ? 'rgba(72, 42, 54, 0.88)'
+                    : 'linear-gradient(135deg, rgba(164, 114, 42, 0.95), rgba(118, 42, 66, 0.95))',
+                border: `1px solid ${COLORS.goldLight}`,
+                color: '#fff9ee',
+                opacity: bouquetHandoverStage !== 'idle' || proposalBusy ? 0.65 : 1,
+                cursor: bouquetHandoverStage !== 'idle' || proposalBusy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <span>
+                {bouquetHandoverStage !== 'idle' ? 'GIVING BOUQUET...' : 'GIVE BOUQUET'}
+              </span>
+              <span style={{ fontSize: 11 }}>💐</span>
+            </button>
+          )}
+
           {nearbyInteractable === 'love-album' && (
             <button
               type="button"
@@ -1099,24 +1253,7 @@ export default function HUD() {
             </button>
           )}
 
-          {nearbyMemory && currentRoom === 'garden' && (
-            <button
-              type="button"
-              data-testid="btn-view-album"
-              onClick={() => openAlbumFromMemory(nearbyMemory)}
-              style={{
-                ...sideButtonBase,
-                background: 'linear-gradient(135deg, rgba(140, 44, 78, 0.94), rgba(82, 22, 46, 0.94))',
-                border: `1px solid ${COLORS.goldLight}`,
-                color: '#fff8ec',
-              }}
-            >
-              <span>VIEW ALBUM</span>
-              <span style={{ fontSize: 10, opacity: 0.85 }}>[E]</span>
-            </button>
-          )}
-
-          {nearbyMemory && currentRoom !== 'garden' && (
+          {nearbyMemory && !isSitting && (
             <button
               type="button"
               data-testid="btn-view-memory"
@@ -1162,6 +1299,23 @@ export default function HUD() {
             >
               <span>SIT TOGETHER</span>
               <span style={{ fontSize: 10, opacity: 0.85 }}>♡</span>
+            </button>
+          )}
+
+          {showGardenAlbumButton && (
+            <button
+              type="button"
+              data-testid="btn-view-album"
+              onClick={() => setShowLoveAlbum(true)}
+              style={{
+                ...sideButtonBase,
+                background: 'linear-gradient(135deg, rgba(140, 44, 78, 0.94), rgba(82, 22, 46, 0.94))',
+                border: `1px solid ${COLORS.goldLight}`,
+                color: '#fff8ec',
+              }}
+            >
+              <span>VIEW ALBUM</span>
+              <span style={{ fontSize: 10, opacity: 0.9 }}>📖</span>
             </button>
           )}
 
@@ -1318,6 +1472,29 @@ export default function HUD() {
               >
                 <span>EXCHANGE VOWS</span>
                 <span>✦</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="btn-cake-cutting"
+                onClick={() => {
+                  unlockBackgroundAudio();
+                  startCakeCutting();
+                }}
+                style={{
+                  ...sideButtonBase,
+                  padding: '8px 11px',
+                  fontSize: 11,
+                  borderColor:
+                    cakeCuttingStage !== 'idle' ? COLORS.goldLight : 'rgba(200, 165, 90, 0.3)',
+                  background:
+                    cakeCuttingStage !== 'idle'
+                      ? 'linear-gradient(135deg, rgba(164, 98, 64, 0.85), rgba(114, 48, 72, 0.85))'
+                      : 'rgba(32, 20, 38, 0.78)',
+                }}
+              >
+                <span>CAKE CUTTING</span>
+                <span>🍰</span>
               </button>
 
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1613,8 +1790,16 @@ export default function HUD() {
           style={{
             position: 'fixed',
             bottom: compact ? 'auto' : 12,
-            top: compact ? 'calc(108px + env(safe-area-inset-top))' : 'auto',
-            left: compact ? 'calc(10px + env(safe-area-inset-left))' : 12,
+            top: isLandscapeMobile
+              ? 'calc(96px + env(safe-area-inset-top))'
+              : compact
+              ? 'calc(108px + env(safe-area-inset-top))'
+              : 'auto',
+            left: isLandscapeMobile
+              ? 'calc(12px + env(safe-area-inset-left))'
+              : compact
+              ? 'calc(10px + env(safe-area-inset-left))'
+              : 12,
             width: 24,
             height: 24,
             borderRadius: '50%',
@@ -1672,6 +1857,106 @@ export default function HUD() {
           >
             📸 Wedding Portrait Captured!
           </div>
+        </div>
+      )}
+
+      {/* Elegant Bouquet Personal Letter Card Displayed After Handover */}
+      {!modalOpen && showBouquetNoteBanner && hasBouquetLetter(createdBouquet) && createdBouquet && (
+        <div
+          data-testid="bouquet-note-card"
+          style={{
+            position: 'fixed',
+            bottom: compact ? 'calc(16px + env(safe-area-inset-bottom))' : 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 'min(92vw, 440px)',
+            background: '#FBF7EE',
+            color: '#2A1D1A',
+            border: `1.5px solid ${COLORS.gold}`,
+            borderRadius: 10,
+            padding: '12px 16px',
+            boxShadow: '0 18px 42px rgba(0, 0, 0, 0.45)',
+            fontFamily: 'Georgia, serif',
+            pointerEvents: 'auto',
+            zIndex: 82,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                letterSpacing: 1.8,
+                textTransform: 'uppercase',
+                color: '#886734',
+              }}
+            >
+              Letter Inside the Bouquet
+            </span>
+            <button
+              type="button"
+              aria-label="Close bouquet note"
+              data-testid="btn-close-bouquet-note"
+              onClick={dismissBouquetNote}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: '50%',
+                border: '1px solid rgba(136, 103, 52, 0.35)',
+                background: 'transparent',
+                color: '#4F3B34',
+                cursor: 'pointer',
+                fontSize: 14,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+          {createdBouquet.letterMode === 'handwritten' &&
+          createdBouquet.handwrittenLetterDataUrl ? (
+            <div
+              style={{
+                borderRadius: 6,
+                border: '1px solid rgba(164, 138, 98, 0.35)',
+                background:
+                  'repeating-linear-gradient(180deg, #FFFDF8 0px, #FFFDF8 23px, rgba(190, 168, 132, 0.25) 24px)',
+                padding: 6,
+              }}
+            >
+              <img
+                data-testid="bouquet-note-handwritten-img"
+                src={createdBouquet.handwrittenLetterDataUrl}
+                alt="Handwritten bouquet letter"
+                referrerPolicy="no-referrer"
+                style={{
+                  width: '100%',
+                  maxHeight: 132,
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
+          ) : (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                lineHeight: 1.55,
+                fontStyle: 'italic',
+                color: '#2F1F1B',
+                wordBreak: 'break-word',
+              }}
+            >
+              “{createdBouquet.message}”
+            </p>
+          )}
         </div>
       )}
     </div>

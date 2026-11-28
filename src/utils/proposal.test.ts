@@ -4,33 +4,50 @@ import {
   computeProposalPositions,
   isProposalBusy,
   isProposalCelebrationActive,
+  isProposalFireworksAllowed,
   isSuitableProposalLocation,
+  shouldPlayProposalFlowerAnimation,
   shouldShowCoupleToolbar,
 } from './proposal.ts';
 
-test('isSuitableProposalLocation enables proposal in romantic open rooms and guards obstacles/busy states', () => {
-  // Open gallery floor away from central pedestal
-  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }), true);
-  // Too close to central album pedestal
-  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -21.0 }), false);
+test('isSuitableProposalLocation enables proposal only inside unlocked inner Secret Room and guards obstacles/busy states', () => {
+  // Gallery, Garden, Pre-Secret Room, Cinema, and Wedding Hall are not valid proposal spots
+  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }, { secretRoomUnlocked: true }), false);
+  assert.equal(isSuitableProposalLocation('garden', { x: 18.0, z: -34.0 }, { secretRoomUnlocked: true }), false);
+  assert.equal(isSuitableProposalLocation('secret', { x: -24.0, z: -21.5 }, { secretRoomUnlocked: true }), false);
+  assert.equal(isSuitableProposalLocation('cinema', { x: 0, z: -47.5 }, { secretRoomUnlocked: true }), false);
+  assert.equal(isSuitableProposalLocation('wedding', { x: -26.5, z: -50.0 }, { secretRoomUnlocked: true }), false);
 
-  // Garden open lawn vs waterfall pond
-  assert.equal(isSuitableProposalLocation('garden', { x: 18.0, z: -34.0 }), true);
-  assert.equal(isSuitableProposalLocation('garden', { x: 26.5, z: -38.0 }), false);
-
-  // Secret room & Private chamber clear center
-  assert.equal(isSuitableProposalLocation('secret', { x: -24.0, z: -21.5 }), true);
-  assert.equal(isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }), true);
-  assert.equal(isSuitableProposalLocation('private_chamber', { x: -44.8, z: -21.5 }), false);
-
-  // Disallowed inside cinema, wedding hall, sitting, dancing, or active modal
-  assert.equal(isSuitableProposalLocation('cinema', { x: 0, z: -47.5 }), false);
-  assert.equal(isSuitableProposalLocation('wedding', { x: -26.5, z: -50.0 }), false);
-  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }, { isSitting: true }), false);
-  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }, { isDancing: true }), false);
-  assert.equal(isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }, { modalOpen: true }), false);
+  // Inner Secret Room requires password unlock AND clear floor space away from center board
   assert.equal(
-    isSuitableProposalLocation('gallery', { x: 0, z: -13.5 }, { proposalStage: 'kneeling' }),
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: false }),
+    false
+  );
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: true }),
+    true
+  );
+  // Too close to central memory board
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -44.8, z: -21.5 }, { secretRoomUnlocked: true }),
+    false
+  );
+
+  // Busy states block proposal even inside unlocked inner Secret Room
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: true, isSitting: true }),
+    false
+  );
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: true, isDancing: true }),
+    false
+  );
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: true, modalOpen: true }),
+    false
+  );
+  assert.equal(
+    isSuitableProposalLocation('private_chamber', { x: -41.5, z: -21.5 }, { secretRoomUnlocked: true, proposalStage: 'kneeling' }),
     false
   );
 });
@@ -45,18 +62,30 @@ test('computeProposalPositions aligns proposer and partner cleanly facing each o
   assert.ok(diff < 1e-6);
 });
 
-test('proposal state helpers lock interruptions and trigger celebration only post-acceptance', () => {
+test('proposal state helpers lock interruptions and trigger flower celebration only while proposal celebration is active', () => {
   assert.equal(isProposalBusy('idle'), false);
   assert.equal(isProposalBusy('approaching'), true);
   assert.equal(isProposalBusy('kneeling'), true);
   assert.equal(isProposalBusy('awaiting_answer'), true);
   assert.equal(isProposalBusy('embracing'), true);
 
+  assert.equal(isProposalCelebrationActive('idle'), false);
   assert.equal(isProposalCelebrationActive('kneeling'), false);
   assert.equal(isProposalCelebrationActive('awaiting_answer'), false);
   assert.equal(isProposalCelebrationActive('accepted_standing'), true);
   assert.equal(isProposalCelebrationActive('embracing'), true);
   assert.equal(isProposalCelebrationActive('celebrating'), true);
+
+  assert.equal(shouldPlayProposalFlowerAnimation('idle'), false);
+  assert.equal(shouldPlayProposalFlowerAnimation('approaching'), false);
+  assert.equal(shouldPlayProposalFlowerAnimation('kneeling'), false);
+  assert.equal(shouldPlayProposalFlowerAnimation('awaiting_answer'), false);
+  assert.equal(shouldPlayProposalFlowerAnimation('accepted_standing'), true);
+  assert.equal(shouldPlayProposalFlowerAnimation('embracing'), true);
+  assert.equal(shouldPlayProposalFlowerAnimation('celebrating'), true);
+
+  assert.equal(isProposalFireworksAllowed('private_chamber'), false);
+  assert.equal(isProposalFireworksAllowed('secret'), false);
 });
 
 test('shouldShowCoupleToolbar respects wedding room and modal visibility', () => {

@@ -12,6 +12,7 @@ export default function DoYouLoveMeModal() {
   const confirmDoYouLoveMeYes = useGameStore((s) => s.confirmDoYouLoveMeYes);
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const confirmTimerRef = useRef<number | null>(null);
   const [noPos, setNoPos] = useState({ x: 204, y: 52 });
   const [escapeCount, setEscapeCount] = useState(0);
   const [confirmedPhase, setConfirmedPhase] = useState(false);
@@ -22,6 +23,12 @@ export default function DoYouLoveMeModal() {
       setEscapeCount(0);
       setConfirmedPhase(false);
     }
+    return () => {
+      if (confirmTimerRef.current !== null) {
+        window.clearTimeout(confirmTimerRef.current);
+        confirmTimerRef.current = null;
+      }
+    };
   }, [showDoYouLoveMeModal]);
 
   if (!showDoYouLoveMeModal) return null;
@@ -46,7 +53,8 @@ export default function DoYouLoveMeModal() {
   const handleYesClick = () => {
     if (confirmedPhase) return;
     setConfirmedPhase(true);
-    setTimeout(() => {
+    confirmTimerRef.current = window.setTimeout(() => {
+      confirmTimerRef.current = null;
       confirmDoYouLoveMeYes();
     }, 950);
   };
@@ -124,7 +132,7 @@ export default function DoYouLoveMeModal() {
             marginBottom: 8,
           }}
         >
-          ✦ Secret Room Entrance ✦
+          ✦ Pre-Secret Room · Love Test ✦
         </div>
 
         <h2

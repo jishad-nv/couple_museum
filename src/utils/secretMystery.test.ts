@@ -12,6 +12,7 @@ import {
   QUIZ_MASTER_POS,
   REWARD_BOX_POS,
   SECRET_ARRIVAL_POS,
+  SECRET_LETTER_PLINTH_POS,
   detectMuseumRoom,
 } from './museumLayout.ts';
 
@@ -39,16 +40,17 @@ test('pickNextNoButtonPosition always keeps NO strictly inside stage bounds and 
   }
 });
 
-test('detectMuseumRoom distinguishes Secret Room and Private Memory Chamber cleanly', () => {
+test('detectMuseumRoom distinguishes Pre-Secret Room props and Password-Protected Secret Room cleanly', () => {
   assert.equal(detectMuseumRoom(SECRET_ARRIVAL_POS[0], SECRET_ARRIVAL_POS[2]), 'secret');
   assert.equal(detectMuseumRoom(QUIZ_MASTER_POS[0], QUIZ_MASTER_POS[2]), 'secret');
   assert.equal(detectMuseumRoom(REWARD_BOX_POS[0], REWARD_BOX_POS[2]), 'secret');
+  assert.equal(detectMuseumRoom(SECRET_LETTER_PLINTH_POS[0], SECRET_LETTER_PLINTH_POS[2]), 'secret');
   assert.equal(
     detectMuseumRoom(PRIVATE_CHAMBER_ARRIVAL_POS[0], PRIVATE_CHAMBER_ARRIVAL_POS[2]),
     'private_chamber'
   );
   assert.equal(detectMuseumRoom(-44.8, -21.5), 'private_chamber');
-  // Secret doorway threshold inside secret room
+  // Secret doorway threshold inside Pre-Secret Room
   assert.equal(detectMuseumRoom(PRIVATE_DOOR_POS[0] + 0.4, PRIVATE_DOOR_POS[2]), 'secret');
 });
 

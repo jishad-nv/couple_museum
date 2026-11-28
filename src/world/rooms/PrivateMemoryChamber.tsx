@@ -17,23 +17,32 @@ import type { PrivateMemoryItem } from '../../utils/secretMystery';
 import { useGameStore } from '../../store/gameStore';
 
 const DUST_MOTE_COUNT = 52;
+const privatePhotoTextureCache = new Map<string, THREE.Texture>();
 
 function usePrivatePhotoTexture(item: PrivateMemoryItem): THREE.Texture | null {
-  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const url = getMemoryArtworkDataUrl({
+    id: item.id,
+    title: item.title,
+    section: 'Special Moments',
+    date: item.dateLabel,
+    description: item.body,
+    photoSrc: item.photoSrc,
+    palette: item.palette,
+    motif: item.motif,
+  });
+
+  const [texture, setTexture] = useState<THREE.Texture | null>(
+    () => privatePhotoTextureCache.get(url) ?? null
+  );
 
   useEffect(() => {
-    let active = true;
-    const url = getMemoryArtworkDataUrl({
-      id: item.id,
-      title: item.title,
-      section: 'Special Moments',
-      date: item.dateLabel,
-      description: item.body,
-      photoSrc: item.photoSrc,
-      palette: item.palette,
-      motif: item.motif,
-    });
+    const cached = privatePhotoTextureCache.get(url);
+    if (cached) {
+      setTexture(cached);
+      return;
+    }
 
+    let active = true;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -41,6 +50,7 @@ function usePrivatePhotoTexture(item: PrivateMemoryItem): THREE.Texture | null {
       const tex = new THREE.Texture(img);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.needsUpdate = true;
+      privatePhotoTextureCache.set(url, tex);
       setTexture(tex);
     };
     img.src = url;
@@ -48,7 +58,7 @@ function usePrivatePhotoTexture(item: PrivateMemoryItem): THREE.Texture | null {
     return () => {
       active = false;
     };
-  }, [item.id, item.title, item.dateLabel, item.body, item.photoSrc, item.palette, item.motif]);
+  }, [url]);
 
   return texture;
 }
@@ -337,7 +347,7 @@ export default function PrivateMemoryChamber() {
   const textsMap = useGameStore((s) => s.textsMap);
   const motesRef = useRef<THREE.Points>(null);
 
-  const chamberTitle = textsMap.private_chamber_title || 'OUR PRIVATE MEMORIES';
+  const chamberTitle = textsMap.secret_room_title || textsMap.private_chamber_title || 'OUR SECRET ROOM';
 
   const displayAssignments = useMemo(() => {
     const central =
@@ -379,7 +389,9 @@ export default function PrivateMemoryChamber() {
         s.showSecretLetterModal ||
         s.showDoYouLoveMeModal ||
         s.showLoveQuizModal ||
-        s.showPrivateMemoryModal
+        s.showPrivateMemoryModal ||
+        s.showPasswordModal ||
+        s.showProposalModal
       ) {
         return;
       }

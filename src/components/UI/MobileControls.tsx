@@ -4,6 +4,7 @@ import { isProposalBusy } from '../../utils/proposal';
 
 export default function MobileControls() {
   const isMobile = useGameStore((s) => s.isMobile);
+  const isPortrait = useGameStore((s) => s.isPortrait);
   const setJoystickInput = useGameStore((s) => s.setJoystickInput);
   const proposalStage = useGameStore((s) => s.proposalStage);
   const showGuestbookModal = useGameStore((s) => s.showGuestbookModal);
@@ -15,48 +16,42 @@ export default function MobileControls() {
   const showLoveQuizModal = useGameStore((s) => s.showLoveQuizModal);
   const showPrivateMemoryModal = useGameStore((s) => s.showPrivateMemoryModal);
   const showProposalModal = useGameStore((s) => s.showProposalModal);
+  const showPasswordModal = useGameStore((s) => s.showPasswordModal);
   const showAdminLogin = useGameStore((s) => s.showAdminLogin);
   const showAdminPanel = useGameStore((s) => s.showAdminPanel);
 
   const joystickRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
+  const activeTouchIdRef = useRef<number | null>(null);
   const [joystickActive, setJoystickActive] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 390
+  const [viewport, setViewport] = useState(() =>
+    typeof window !== 'undefined'
+      ? { width: window.innerWidth, height: window.innerHeight }
+      : { width: 844, height: 390 }
   );
   const joystickCenter = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const syncSize = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', syncSize);
+    window.addEventListener('orientationchange', syncSize);
+    return () => {
+      window.removeEventListener('resize', syncSize);
+      window.removeEventListener('orientationchange', syncSize);
+    };
   }, []);
 
-  const isCompactPhone = viewportWidth <= 420;
-  const joystickSize = isCompactPhone ? 46 : 54;
-  const actionBtnSize = isCompactPhone ? 52 : 58;
+  const isLandscapeMobile = viewport.width > viewport.height && viewport.height <= 520;
+  const isCompactPhone = Math.min(viewport.width, viewport.height) <= 420;
+  const joystickSize = isLandscapeMobile ? 44 : isCompactPhone ? 46 : 54;
+  const actionBtnSize = isCompactPhone ? 50 : 56;
 
-  const handleJoystickStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = joystickRef.current?.getBoundingClientRect();
-    if (rect) {
-      joystickCenter.current = {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      };
-    }
-    setJoystickActive(true);
-  }, []);
-
-  const handleJoystickMove = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      if (!joystickActive) return;
-
-      const touch = e.touches[0];
-      let dx = touch.clientX - joystickCenter.current.x;
-      let dy = touch.clientY - joystickCenter.current.y;
+  const updateKnobFromTouch = useCallback(
+    (clientX: number, clientY: number) => {
+      let dx = clientX - joystickCenter.current.x;
+      let dy = clientY - joystickCenter.current.y;
 
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > joystickSize) {
@@ -70,16 +65,66 @@ export default function MobileControls() {
         knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
       }
     },
-    [joystickActive, joystickSize, setJoystickInput]
+    [joystickSize, setJoystickInput]
   );
 
-  const handleJoystickEnd = useCallback(() => {
-    setJoystickActive(false);
-    setJoystickInput({ x: 0, y: 0 });
-    if (knobRef.current) {
-      knobRef.current.style.transform = 'translate(0px, 0px)';
+  const handleJoystickStart = useCallback(
+    (e: React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.changedTouches[0] || e.touches[0];
+      if (!touch) return;
+      activeTouchIdRef.current = touch.identifier;
+      const rect = joystickRef.current?.getBoundingClientRect();
+      if (rect) {
+        joystickCenter.current = {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
+      setJoystickActive(true);
+      updateKnobFromTouch(touch.clientX, touch.clientY);
+    },
+    [updateKnobFromTouch]
+  );
+
+  const handleJoystickMove = useCallback(
+    (e: React.TouchEvent) => {
+      e.preventDefault();
+      if (!joystickActive) return;
+
+      const touch =
+        Array.from(e.touches).find((t) => t.identifier === activeTouchIdRef.current) ||
+        e.touches[0];
+      if (!touch) return;
+      updateKnobFromTouch(touch.clientX, touch.clientY);
+    },
+    [joystickActive, updateKnobFromTouch]
+  );
+
+  const handleJoystickEnd = useCallback(
+    (e?: React.TouchEvent) => {
+      if (e && activeTouchIdRef.current !== null) {
+        const stillDown = Array.from(e.touches).some(
+          (t) => t.identifier === activeTouchIdRef.current
+        );
+        if (stillDown) return;
+      }
+      activeTouchIdRef.current = null;
+      setJoystickActive(false);
+      setJoystickInput({ x: 0, y: 0 });
+      if (knobRef.current) {
+        knobRef.current.style.transform = 'translate(0px, 0px)';
+      }
+    },
+    [setJoystickInput]
+  );
+
+  useEffect(() => {
+    if (isPortrait) {
+      handleJoystickEnd();
     }
-  }, [setJoystickInput]);
+  }, [isPortrait, handleJoystickEnd]);
 
   const handleInteract = useCallback(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
@@ -105,10 +150,11 @@ export default function MobileControls() {
     showLoveQuizModal ||
     showPrivateMemoryModal ||
     showProposalModal ||
+    showPasswordModal ||
     showAdminLogin ||
     showAdminPanel;
 
-  if (!isMobile || modalOpen || isProposalBusy(proposalStage)) return null;
+  if (!isMobile || isPortrait || modalOpen || isProposalBusy(proposalStage)) return null;
 
   return (
     <div
@@ -130,12 +176,14 @@ export default function MobileControls() {
         data-testid="mobile-joystick"
         style={{
           position: 'absolute',
-          bottom: 'calc(18px + env(safe-area-inset-bottom))',
+          bottom: isLandscapeMobile
+            ? 'calc(12px + env(safe-area-inset-bottom))'
+            : 'calc(18px + env(safe-area-inset-bottom))',
           left: 'calc(14px + env(safe-area-inset-left))',
           width: joystickSize * 2 + 16,
           height: joystickSize * 2 + 16,
           borderRadius: '50%',
-          background: 'rgba(20, 12, 26, 0.34)',
+          background: 'rgba(20, 12, 26, 0.36)',
           border: '1.5px solid rgba(255, 255, 255, 0.28)',
           display: 'flex',
           alignItems: 'center',
@@ -146,15 +194,16 @@ export default function MobileControls() {
         onTouchStart={handleJoystickStart}
         onTouchMove={handleJoystickMove}
         onTouchEnd={handleJoystickEnd}
+        onTouchCancel={handleJoystickEnd}
       >
         <div
           ref={knobRef}
           style={{
-            width: isCompactPhone ? 42 : 48,
-            height: isCompactPhone ? 42 : 48,
+            width: isLandscapeMobile || isCompactPhone ? 40 : 48,
+            height: isLandscapeMobile || isCompactPhone ? 40 : 48,
             borderRadius: '50%',
-            background: 'rgba(255, 245, 232, 0.42)',
-            border: '1.5px solid rgba(255, 255, 255, 0.62)',
+            background: 'rgba(255, 245, 232, 0.44)',
+            border: '1.5px solid rgba(255, 255, 255, 0.64)',
             transition: joystickActive ? 'none' : 'transform 0.2s ease',
           }}
         />
@@ -164,11 +213,14 @@ export default function MobileControls() {
       <div
         style={{
           position: 'absolute',
-          bottom: 'calc(18px + env(safe-area-inset-bottom))',
+          bottom: isLandscapeMobile
+            ? 'calc(12px + env(safe-area-inset-bottom))'
+            : 'calc(18px + env(safe-area-inset-bottom))',
           right: 'calc(14px + env(safe-area-inset-right))',
           display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
+          flexDirection: isLandscapeMobile ? 'row' : 'column',
+          alignItems: 'center',
+          gap: isLandscapeMobile ? 10 : 12,
           pointerEvents: 'auto',
         }}
       >
@@ -181,8 +233,8 @@ export default function MobileControls() {
             width: actionBtnSize,
             height: actionBtnSize,
             borderRadius: '50%',
-            background: 'rgba(176, 128, 54, 0.56)',
-            border: '2px solid rgba(235, 198, 120, 0.85)',
+            background: 'rgba(176, 128, 54, 0.6)',
+            border: '2px solid rgba(235, 198, 120, 0.88)',
             color: '#fff',
             fontSize: 15,
             fontWeight: 'bold',
@@ -203,8 +255,8 @@ export default function MobileControls() {
             width: actionBtnSize,
             height: actionBtnSize,
             borderRadius: '50%',
-            background: 'rgba(24, 16, 32, 0.45)',
-            border: '1.5px solid rgba(255, 255, 255, 0.4)',
+            background: 'rgba(24, 16, 32, 0.48)',
+            border: '1.5px solid rgba(255, 255, 255, 0.44)',
             color: '#fff',
             fontSize: 19,
             cursor: 'pointer',

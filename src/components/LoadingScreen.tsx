@@ -1,43 +1,71 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../store/gameStore';
 import { unlockBackgroundAudio } from '../audio/BackgroundAudioManager';
+import { tryLockLandscapeOrientation } from '../utils/orientation';
+import { computeLoadingReadiness } from '../utils/loadingReadiness';
+
+function deterministicParticle(i: number) {
+  const h1 = Math.abs(Math.sin(i * 12.9898 + 1.7) * 43758.5453) % 1;
+  const h2 = Math.abs(Math.sin(i * 78.233 + 3.1) * 29431.1357) % 1;
+  const h3 = Math.abs(Math.sin(i * 39.425 + 7.3) * 19283.7412) % 1;
+  return {
+    leftPct: h1 * 100,
+    topPct: h2 * 100,
+    driftY: -25 - h3 * 45,
+    duration: 3.5 + h3 * 3.5,
+    delay: h1 * 2.5,
+  };
+}
 
 export default function LoadingScreen() {
   const isLoading = useGameStore((s) => s.isLoading);
+  const isMobile = useGameStore((s) => s.isMobile);
+  const isPortrait = useGameStore((s) => s.isPortrait);
   const setIsLoading = useGameStore((s) => s.setIsLoading);
   const textsMap = useGameStore((s) => s.textsMap);
-  const [progress, setProgress] = useState(0);
-  const [showEnter, setShowEnter] = useState(false);
+  const contentStatus = useGameStore((s) => s.contentStatus);
+  const contentError = useGameStore((s) => s.contentError);
+  const sceneReady = useGameStore((s) => s.sceneReady);
+  const retryLoadMuseumContent = useGameStore((s) => s.retryLoadMuseumContent);
 
+  const [isShortViewport, setIsShortViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.innerHeight < 500 : false
+  );
+
+  const particles = useMemo(
+    () => Array.from({ length: 24 }, (_, i) => deterministicParticle(i)),
+    []
+  );
+
+  const orientationBlocked = isMobile && isPortrait;
   const loadingTitle = textsMap.loading_title || 'OUR LOVE';
   const loadingSubtitle = textsMap.loading_subtitle || 'MUSEUM';
   const loadingTagline = textsMap.loading_tagline || 'A JOURNEY THROUGH OUR MEMORIES';
 
+  const readiness = computeLoadingReadiness({
+    contentStatus,
+    sceneReady,
+    contentError,
+  });
+
   useEffect(() => {
-    if (!isLoading) return;
-
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setShowEnter(true);
-          return 100;
-        }
-        return prev + Math.random() * 8 + 2;
-      });
-    }, 150);
-
-    return () => clearInterval(interval);
-  }, [isLoading]);
+    const syncHeight = () => setIsShortViewport(window.innerHeight < 500);
+    window.addEventListener('resize', syncHeight);
+    return () => window.removeEventListener('resize', syncHeight);
+  }, []);
 
   const handleEnter = () => {
+    if (!readiness.canEnter) return;
     unlockBackgroundAudio();
+    if (isMobile) {
+      void tryLockLandscapeOrientation();
+    }
     setIsLoading(false);
   };
 
   useEffect(() => {
-    if (!isLoading || !showEnter) return;
+    if (!isLoading || !readiness.canEnter || orientationBlocked) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.code === 'Space') {
         e.preventDefault();
@@ -47,53 +75,56 @@ export default function LoadingScreen() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isLoading, showEnter, setIsLoading]);
+  }, [isLoading, readiness.canEnter, orientationBlocked, setIsLoading]);
 
-  if (!isLoading) return null;
+  if (orientationBlocked) return null;
 
   return (
     <AnimatePresence>
       {isLoading && (
         <motion.div
+          key="museum-splash"
+          data-testid="loading-screen"
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 1.2, ease: 'easeInOut' }}
+          transition={{ duration: 0.85, ease: 'easeInOut' }}
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
             width: '100vw',
-            height: '100vh',
-            background: 'linear-gradient(135deg, #1a0a1a, #0a0a2a, #1a0a1a)',
+            height: '100dvh',
+            background:
+              'radial-gradient(circle at 50% 38%, rgba(42, 22, 46, 0.94), rgba(11, 13, 28, 0.97) 70%, rgba(7, 10, 22, 0.99))',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
+            padding: '16px env(safe-area-inset-right) 24px env(safe-area-inset-left)',
             zIndex: 10000,
             fontFamily: 'Georgia, serif',
+            pointerEvents: isLoading ? 'auto' : 'none',
           }}
         >
-          {/* Background particles */}
-          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-            {Array.from({ length: 30 }).map((_, i) => (
+          {/* Subtle golden floating particles */}
+          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+            {particles.map((p, i) => (
               <motion.div
                 key={i}
-                initial={{
-                  x: Math.random() * window.innerWidth,
-                  y: Math.random() * window.innerHeight,
-                  opacity: 0,
-                }}
+                initial={{ opacity: 0, y: 0 }}
                 animate={{
-                  y: [null, Math.random() * window.innerHeight],
-                  opacity: [0, 0.4, 0],
+                  y: [0, p.driftY, 0],
+                  opacity: [0, 0.42, 0],
                 }}
                 transition={{
-                  duration: 3 + Math.random() * 4,
+                  duration: p.duration,
                   repeat: Infinity,
-                  delay: Math.random() * 3,
+                  delay: p.delay,
                 }}
                 style={{
                   position: 'absolute',
+                  left: `${p.leftPct}%`,
+                  top: `${p.topPct}%`,
                   width: 4,
                   height: 4,
                   borderRadius: '50%',
@@ -105,104 +136,151 @@ export default function LoadingScreen() {
 
           {/* Logo / Title */}
           <motion.div
-            initial={{ y: -20, opacity: 0 }}
+            initial={{ y: -14, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 1, delay: 0.3 }}
+            transition={{ duration: 0.7 }}
             style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}
           >
-            <div style={{
-              fontSize: 60,
-              marginBottom: 15,
-            }}>
+            <div
+              style={{
+                fontSize: isShortViewport ? 36 : 58,
+                color: '#d8b467',
+                marginBottom: isShortViewport ? 6 : 14,
+              }}
+            >
               ♡
             </div>
-            <h1 style={{
-              fontSize: 42,
-              color: '#c8a55a',
-              fontWeight: 300,
-              letterSpacing: 8,
-              marginBottom: 8,
-              textShadow: '0 0 30px rgba(200,165,90,0.3)',
-            }}>
+            <h1
+              style={{
+                fontSize: isShortViewport ? 28 : 42,
+                color: '#c8a55a',
+                fontWeight: 300,
+                letterSpacing: isShortViewport ? 5 : 8,
+                marginBottom: isShortViewport ? 4 : 8,
+                textShadow: '0 0 30px rgba(200,165,90,0.3)',
+              }}
+            >
               {loadingTitle}
             </h1>
-            <h2 style={{
-              fontSize: 18,
-              color: 'rgba(255,255,255,0.5)',
-              fontWeight: 300,
-              letterSpacing: 12,
-              marginBottom: 50,
-            }}>
+            <h2
+              style={{
+                fontSize: isShortViewport ? 14 : 18,
+                color: 'rgba(255,255,255,0.58)',
+                fontWeight: 300,
+                letterSpacing: isShortViewport ? 8 : 12,
+                marginBottom: isShortViewport ? 22 : 44,
+              }}
+            >
               {loadingSubtitle}
             </h2>
           </motion.div>
 
-          {/* Progress bar */}
+          {/* Real Readiness Progress / Enter / Retry */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.8 }}
+            transition={{ delay: 0.25 }}
             style={{
-              width: 300,
+              width: isShortViewport ? 280 : 320,
               position: 'relative',
               zIndex: 1,
+              textAlign: 'center',
             }}
           >
-            {!showEnter ? (
+            {readiness.isError ? (
+              <div
+                data-testid="loading-error-box"
+                style={{
+                  background: 'rgba(38, 16, 26, 0.85)',
+                  border: '1px solid rgba(232, 130, 148, 0.45)',
+                  borderRadius: 14,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <p style={{ color: '#ffd8df', fontSize: 12.5, margin: 0, lineHeight: 1.5 }}>
+                  {readiness.statusLabel}
+                </p>
+                <button
+                  type="button"
+                  data-testid="btn-retry-loading"
+                  onClick={() => void retryLoadMuseumContent()}
+                  style={{
+                    padding: '10px 32px',
+                    background: 'rgba(200,165,90,0.16)',
+                    border: '1px solid #c8a55a',
+                    color: '#f5dfa6',
+                    fontSize: 13,
+                    fontFamily: 'Georgia, serif',
+                    letterSpacing: 3,
+                    cursor: 'pointer',
+                    borderRadius: 24,
+                  }}
+                >
+                  RETRY
+                </button>
+              </div>
+            ) : !readiness.canEnter ? (
               <>
-                <div style={{
-                  width: '100%',
-                  height: 2,
-                  background: 'rgba(255,255,255,0.1)',
-                  borderRadius: 1,
-                  overflow: 'hidden',
-                }}>
+                <div
+                  style={{
+                    width: '100%',
+                    height: 3,
+                    background: 'rgba(255,255,255,0.12)',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
                   <motion.div
-                    animate={{ width: `${Math.min(progress, 100)}%` }}
+                    animate={{ width: `${Math.min(readiness.percent, 100)}%` }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
                     style={{
                       height: '100%',
                       background: 'linear-gradient(90deg, #c8a55a, #e8d58a)',
-                      borderRadius: 1,
+                      borderRadius: 2,
                     }}
                   />
                 </div>
-                <p style={{
-                  textAlign: 'center',
-                  color: 'rgba(255,255,255,0.4)',
-                  fontSize: 12,
-                  marginTop: 15,
-                  letterSpacing: 2,
-                }}>
-                  PREPARING YOUR EXPERIENCE...
+                <p
+                  data-testid="loading-status-label"
+                  style={{
+                    textAlign: 'center',
+                    color: 'rgba(255,255,255,0.58)',
+                    fontSize: 11.5,
+                    marginTop: 14,
+                    letterSpacing: 2,
+                  }}
+                >
+                  {readiness.statusLabel}
                 </p>
               </>
             ) : (
               <motion.button
+                type="button"
                 data-start="true"
-                initial={{ opacity: 0, y: 10 }}
+                data-testid="btn-enter-museum"
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
                 onClick={handleEnter}
                 style={{
                   display: 'block',
                   margin: '0 auto',
-                  padding: '14px 48px',
-                  background: 'transparent',
+                  padding: isShortViewport ? '11px 40px' : '14px 48px',
+                  background: 'rgba(200,165,90,0.1)',
                   border: '1px solid #c8a55a',
-                  color: '#c8a55a',
-                  fontSize: 16,
+                  color: '#ebd08d',
+                  fontSize: isShortViewport ? 15 : 16,
                   fontFamily: 'Georgia, serif',
                   letterSpacing: 4,
                   cursor: 'pointer',
                   borderRadius: 30,
-                  transition: 'all 0.3s ease',
-                }}
-                onMouseEnter={(e) => {
-                  (e.target as HTMLElement).style.background = 'rgba(200,165,90,0.15)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.target as HTMLElement).style.background = 'transparent';
+                  transition: 'all 0.25s ease',
+                  boxShadow: '0 0 24px rgba(200, 165, 90, 0.22)',
                 }}
               >
                 ENTER
@@ -213,14 +291,15 @@ export default function LoadingScreen() {
           {/* Subtitle */}
           <motion.p
             initial={{ opacity: 0 }}
-            animate={{ opacity: 0.3 }}
-            transition={{ delay: 1.5 }}
+            animate={{ opacity: 0.35 }}
+            transition={{ delay: 0.6 }}
             style={{
               position: 'absolute',
-              bottom: 30,
+              bottom: isShortViewport ? 12 : 28,
               color: '#fff',
-              fontSize: 11,
+              fontSize: isShortViewport ? 10 : 11,
               letterSpacing: 3,
+              pointerEvents: 'none',
             }}
           >
             {loadingTagline}

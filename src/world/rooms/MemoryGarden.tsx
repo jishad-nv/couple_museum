@@ -13,6 +13,8 @@ import Bench, {
   GardenLamp,
   type FlowerVariety,
 } from '../objects/Decorations';
+import Butterflies from '../objects/Butterflies';
+import { GARDEN_BUTTERFLIES } from '../../utils/butterflies';
 import { COLORS } from '../../utils/constants';
 import { useGameStore } from '../../store/gameStore';
 import {
@@ -469,6 +471,7 @@ export default function MemoryGarden() {
       ))}
 
       <Fireflies center={GARDEN_CENTER} />
+      <Butterflies specs={GARDEN_BUTTERFLIES} />
     </group>
   );
 }

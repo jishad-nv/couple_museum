@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
-import { isProposalCelebrationActive } from '../utils/proposal';
+import {
+  isProposalCelebrationActive,
+  shouldPlayProposalFlowerAnimation,
+} from '../utils/proposal';
 import {
   TRAIL_HEART_POOL_SIZE,
   createTrailHeartPool,
@@ -54,8 +57,10 @@ export default function CoupleEffects() {
   const hugLightRef = useRef<THREE.PointLight>(null);
   const proposalLightRef = useRef<THREE.PointLight>(null);
   const timeRef = useRef(0);
+  const proposalPetalTimeRef = useRef(0);
   const trailPoolRef = useRef(createTrailHeartPool(TRAIL_HEART_POOL_SIZE));
   const lastTrailCountRef = useRef(-1);
+  const lastProposalStateRef = useRef<string>('');
 
   const heartGeo = useMemo(() => createHeartGeometry(), []);
   const sparkleGeo = useMemo(() => new THREE.SphereGeometry(0.022, 6, 6), []);
@@ -84,8 +89,15 @@ export default function CoupleEffects() {
     const midZ = (s.playerPosition.z + s.partnerPosition.z) * 0.5;
 
     const isProposalCelebration = isProposalCelebrationActive(s.proposalStage);
+    const isProposalFlowerActive = shouldPlayProposalFlowerAnimation(s.proposalStage);
     const isProposalKneel =
       s.proposalStage === 'kneeling' || s.proposalStage === 'awaiting_answer';
+
+    if (isProposalFlowerActive) {
+      proposalPetalTimeRef.current += delta;
+    } else {
+      proposalPetalTimeRef.current = 0;
+    }
 
     // Hearts appear ONLY for Kiss or Proposal celebration (never for Hug!)
     const showHearts =
@@ -103,8 +115,21 @@ export default function CoupleEffects() {
         (s.weddingStage === 'vows' || s.weddingStage === 'celebrating'));
 
     const showPetals =
-      isProposalCelebration ||
+      isProposalFlowerActive ||
       (s.currentRoom === 'wedding' && s.weddingStage === 'celebrating');
+
+    const proposalDatasetState = `${s.proposalStage}:${isProposalFlowerActive ? 'petals' : 'off'}`;
+    if (proposalDatasetState !== lastProposalStateRef.current) {
+      lastProposalStateRef.current = proposalDatasetState;
+      if (typeof document !== 'undefined') {
+        document.body.dataset.proposalEffects = isProposalCelebration
+          ? 'active'
+          : isProposalKneel
+          ? 'kneel'
+          : 'idle';
+        document.body.dataset.proposalPetals = isProposalFlowerActive ? 'active' : 'off';
+      }
+    }
 
     // Dynamic lights
     if (kissLightRef.current) {
@@ -209,6 +234,7 @@ export default function CoupleEffects() {
 
     // Tossed & cascading red rose petals for Wedding Celebration & Proposal Celebration
     const isWeddingCelebrating = s.currentRoom === 'wedding' && s.weddingStage === 'celebrating';
+    const petalTime = isProposalFlowerActive && !isWeddingCelebrating ? proposalPetalTimeRef.current : t;
     for (let i = 0; i < PETAL_COUNT; i++) {
       const m = petalRefs.current[i];
       if (!m) continue;
@@ -216,13 +242,13 @@ export default function CoupleEffects() {
         m.visible = false;
         continue;
       }
-      const fallCycle = ((t * 0.36 + i * 0.079) % 1 + 1) % 1;
-      const angle = i * 2.399 + t * 0.55;
+      const fallCycle = ((petalTime * 0.36 + i * 0.079) % 1 + 1) % 1;
+      const angle = i * 2.399 + petalTime * 0.55;
       const radial = isWeddingCelebrating
         ? 0.35 + ((i * 17) % 10) * 0.24
         : 0.4 + ((i * 19) % 11) * 0.21;
-      const driftX = Math.sin(t * 2.1 + i) * 0.36;
-      const driftZ = Math.cos(t * 1.7 + i * 0.7) * 0.36;
+      const driftX = Math.sin(petalTime * 2.1 + i) * 0.36;
+      const driftZ = Math.cos(petalTime * 1.7 + i * 0.7) * 0.36;
       // Gentle toss upward arc from side guests before fluttering down cleanly around the couple
       const yPos =
         fallCycle < 0.22
@@ -234,7 +260,7 @@ export default function CoupleEffects() {
         yPos,
         midZ + Math.sin(angle) * radial + driftZ
       );
-      m.rotation.set(t * 2.4 + i, t * 1.7 + i * 0.6, Math.sin(t * 2.2 + i) * 0.9);
+      m.rotation.set(petalTime * 2.4 + i, petalTime * 1.7 + i * 0.6, Math.sin(petalTime * 2.2 + i) * 0.9);
       m.scale.setScalar(0.95 + (i % 3) * 0.22);
     }
 

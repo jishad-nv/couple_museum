@@ -100,6 +100,7 @@ export interface MuseumContentBundle {
   secretQuiz?: SecretQuizQuestion[];
   privateMemories?: PrivateMemoryItem[];
   secretProgress?: SecretMysteryProgress;
+  secretPasswordConfigured?: boolean;
 }
 
 export const DEFAULT_MUSEUM_TEXTS: MuseumTextEntry[] = [

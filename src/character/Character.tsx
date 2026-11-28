@@ -10,6 +10,8 @@ import {
   type BrideOutfitConfig,
   type GroomOutfitConfig,
 } from '../utils/weddingAttire';
+import type { BouquetDesign, BouquetReactionType } from '../utils/bouquet';
+import CustomBouquetMesh from '../world/objects/CustomBouquetMesh';
 
 interface CharacterProps {
   position?: [number, number, number];
@@ -21,6 +23,8 @@ interface CharacterProps {
   weddingMode?: boolean;
   brideOutfit?: BrideOutfitConfig;
   groomOutfit?: GroomOutfitConfig;
+  heldBouquet?: BouquetDesign | null;
+  bouquetReaction?: BouquetReactionType;
 }
 
 // Standing kinematic skeleton heights (meters, base floor at y = 0):
@@ -56,6 +60,8 @@ export default function Character({
   weddingMode = false,
   brideOutfit = DEFAULT_BRIDE_OUTFIT,
   groomOutfit = DEFAULT_GROOM_OUTFIT,
+  heldBouquet = null,
+  bouquetReaction = 'none',
 }: CharacterProps) {
   const groupRef = useRef<THREE.Group>(null);
   const timeRef = useRef(0);
@@ -147,6 +153,20 @@ export default function Character({
   const bodyRef = useRef<THREE.Group>(null);
   const headGroupRef = useRef<THREE.Group>(null);
   const ringGlowRef = useRef<THREE.Mesh>(null);
+  const leftBlushMeshRef = useRef<THREE.Mesh>(null);
+  const rightBlushMeshRef = useRef<THREE.Mesh>(null);
+  const leftBlushMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const rightBlushMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const baseBlushColorObj = useMemo(
+    () => new THREE.Color(isMale ? '#df9780' : '#ef939e'),
+    [isMale]
+  );
+  const activeBlushColorObj = useMemo(
+    () => new THREE.Color(isMale ? '#e97b86' : '#f08294'),
+    [isMale]
+  );
+  const workingBlushColorRef = useRef(new THREE.Color(isMale ? '#df9780' : '#ef939e'));
+  const blushLevelRef = useRef(0);
 
   // Pre-allocated Euler targets so useFrame never allocates
   const targets = useMemo(
@@ -189,6 +209,13 @@ export default function Character({
     const isDancing = action === 'dance';
     const isVows = action === 'vows';
     const isCelebrating = action === 'celebrate';
+    const isCakeCut = action === 'cake_cut';
+    const isCakeFeedGive = action === 'cake_feed_give';
+    const isCakeFeedReceive = action === 'cake_feed_receive';
+    const isBouquetGive = action === 'bouquet_give';
+    const isBouquetReceive = action === 'bouquet_receive';
+    const isBouquetBlush = action === 'bouquet_react_blush';
+    const isBouquetHappy = action === 'bouquet_react_happy';
 
     const lerpRate = isSitting || isKneeling || isProposeStand ? 8.5 : 12;
     const lerpSpeed = 1 - Math.exp(-lerpRate * delta);
@@ -221,7 +248,14 @@ export default function Character({
       isKissing ||
       isDancing ||
       isVows ||
-      isCelebrating
+      isCelebrating ||
+      isCakeCut ||
+      isCakeFeedGive ||
+      isCakeFeedReceive ||
+      isBouquetGive ||
+      isBouquetReceive ||
+      isBouquetBlush ||
+      isBouquetHappy
     ) {
       walkSpeed = 0;
     } else {
@@ -515,6 +549,101 @@ export default function Character({
         tLeftLowerArm.x = -0.32;
         targetHeadRotY = 0.14;
       }
+    } else if (isCakeCut) {
+      const sliceMotion = Math.sin(t * 2.9) * 0.1;
+      targetBodyY = Math.sin(t * 1.8) * 0.004;
+      targetBodyLeanX = 0.08;
+      if (isMale) {
+        // Groom guides silver cake knife cleanly onto front cake tier
+        tRightUpperArm.x = -0.92 + sliceMotion;
+        tRightUpperArm.z = -0.18;
+        tRightLowerArm.x = -0.38 + sliceMotion * 0.45;
+        tLeftUpperArm.x = -0.22;
+        tLeftUpperArm.z = -0.1;
+        tLeftLowerArm.x = -0.35;
+        targetHeadRotX = 0.16;
+        targetHeadRotY = -0.12;
+      } else {
+        // Bride places left hand lovingly over Groom's hand on the knife
+        tLeftUpperArm.x = -0.9 + sliceMotion;
+        tLeftUpperArm.z = 0.2;
+        tLeftLowerArm.x = -0.38 + sliceMotion * 0.45;
+        tRightUpperArm.x = -0.24;
+        tRightUpperArm.z = 0.12;
+        tRightLowerArm.x = -0.38;
+        targetHeadRotX = 0.16;
+        targetHeadRotY = 0.14;
+      }
+    } else if (isCakeFeedGive) {
+      const feedBob = Math.sin(t * 2.4) * 0.06;
+      targetBodyY = Math.sin(t * 2.0) * 0.005;
+      targetBodyLeanX = 0.065;
+      // Right hand lifts silver fork + cake slice gently toward partner's mouth
+      tRightUpperArm.x = -1.28 + feedBob;
+      tRightUpperArm.z = 0.06;
+      tRightLowerArm.x = -0.68 + feedBob * 0.45;
+      tLeftUpperArm.x = -0.26;
+      tLeftUpperArm.z = -0.14;
+      tLeftLowerArm.x = -0.45;
+      targetHeadRotX = -0.04;
+      targetHeadRotY = 0.02;
+    } else if (isCakeFeedReceive) {
+      targetBodyY = Math.sin(t * 2.2) * 0.006;
+      targetBodyLeanX = 0.07;
+      tLeftUpperArm.x = -0.68;
+      tLeftUpperArm.z = 0.18;
+      tLeftLowerArm.x = -0.92;
+      tRightUpperArm.x = -0.45;
+      tRightUpperArm.z = -0.16;
+      tRightLowerArm.x = -0.68;
+      targetHeadRotX = -0.08;
+      targetHeadRotZ = Math.sin(t * 2.2) * 0.04;
+    } else if (isBouquetGive) {
+      targetBodyY = Math.sin(t * 1.9) * 0.004;
+      targetBodyLeanX = 0.05;
+      tRightUpperArm.x = -0.84 + Math.sin(t * 2.2) * 0.02;
+      tRightUpperArm.z = -0.12;
+      tRightLowerArm.x = -0.42;
+      tLeftUpperArm.x = -0.26;
+      tLeftUpperArm.z = 0.08;
+      tLeftLowerArm.x = -0.45;
+      targetHeadRotX = 0.04;
+    } else if (isBouquetReceive) {
+      targetBodyY = Math.sin(t * 2.0) * 0.004;
+      targetBodyLeanX = 0.035;
+      tRightUpperArm.x = -0.74;
+      tRightUpperArm.z = -0.08;
+      tRightLowerArm.x = -0.68;
+      tLeftUpperArm.x = -0.44;
+      tLeftUpperArm.z = 0.14;
+      tLeftLowerArm.x = -0.78;
+      targetHeadRotX = 0.05;
+    } else if (isBouquetBlush) {
+      // Soft shy reaction for Boy receiving bouquet: cradles bouquet, gentle head tilt & warm blush
+      targetBodyY = Math.sin(t * 2.1) * 0.005;
+      targetBodyLeanX = 0.02;
+      tRightUpperArm.x = -0.46;
+      tRightUpperArm.z = -0.08;
+      tRightLowerArm.x = -0.86;
+      tLeftUpperArm.x = -0.18;
+      tLeftUpperArm.z = 0.08;
+      tLeftLowerArm.x = -0.42;
+      targetHeadRotX = 0.085;
+      targetHeadRotZ = 0.105;
+      targetHeadRotY = Math.sin(t * 1.5) * 0.07;
+    } else if (isBouquetHappy) {
+      // Joyful affectionate reaction for Girl receiving bouquet
+      const happyBeat = t * 3.8;
+      targetBodyY = Math.abs(Math.sin(happyBeat)) * 0.018;
+      targetBodyTiltZ = Math.sin(t * 2.0) * 0.032;
+      tRightUpperArm.x = -0.56;
+      tRightUpperArm.z = -0.1;
+      tRightLowerArm.x = -0.92;
+      tLeftUpperArm.x = -0.52;
+      tLeftUpperArm.z = 0.14;
+      tLeftLowerArm.x = -0.84;
+      targetHeadRotX = -0.04;
+      targetHeadRotZ = -0.095 + Math.sin(t * 2.1) * 0.04;
     } else {
       // Natural fluid walking / running / poised idle with subtle breathing & ankle articulation
       const legAngle = Math.sin(phase) * walkAmplitude;
@@ -543,14 +672,16 @@ export default function Character({
           tLeftUpperArm.x = -0.14 + Math.sin(phase * 0.5) * 0.035;
           tLeftUpperArm.z = -0.3;
           tLeftLowerArm.x = -0.2;
-          tRightUpperArm.x = Math.sin(phase) * armSwing;
-          tRightUpperArm.z = 0.04;
-          tRightLowerArm.x = -0.08 - Math.max(0, Math.sin(phase) * armSwing * 0.3);
+          tRightUpperArm.x = heldBouquet ? -0.32 : Math.sin(phase) * armSwing;
+          tRightUpperArm.z = heldBouquet ? -0.06 : 0.04;
+          tRightLowerArm.x = heldBouquet
+            ? -0.62
+            : -0.08 - Math.max(0, Math.sin(phase) * armSwing * 0.3);
           targetHeadRotY = Math.sin(t * 0.5) * 0.04 + (Math.sin(t * 0.25) > 0.6 ? -0.12 : 0);
         } else {
-          tRightUpperArm.x = -0.14 + Math.sin(phase * 0.5) * 0.035;
-          tRightUpperArm.z = 0.3;
-          tRightLowerArm.x = -0.2;
+          tRightUpperArm.x = heldBouquet ? -0.32 : -0.14 + Math.sin(phase * 0.5) * 0.035;
+          tRightUpperArm.z = heldBouquet ? -0.06 : 0.3;
+          tRightLowerArm.x = heldBouquet ? -0.62 : -0.2;
           tLeftUpperArm.x = -Math.sin(phase) * armSwing;
           tLeftUpperArm.z = -0.04;
           tLeftLowerArm.x = -0.08 - Math.max(0, -Math.sin(phase) * armSwing * 0.3);
@@ -558,11 +689,13 @@ export default function Character({
         }
       } else {
         tLeftUpperArm.x = -Math.sin(phase) * armSwing;
-        tRightUpperArm.x = Math.sin(phase) * armSwing;
+        tRightUpperArm.x = heldBouquet ? -0.32 + Math.sin(phase) * armSwing * 0.25 : Math.sin(phase) * armSwing;
         tLeftUpperArm.z = -0.035;
-        tRightUpperArm.z = 0.035;
+        tRightUpperArm.z = heldBouquet ? -0.06 : 0.035;
         tLeftLowerArm.x = -0.07 - Math.max(0, -Math.sin(phase) * armSwing * 0.3);
-        tRightLowerArm.x = -0.07 - Math.max(0, Math.sin(phase) * armSwing * 0.3);
+        tRightLowerArm.x = heldBouquet
+          ? -0.64
+          : -0.07 - Math.max(0, Math.sin(phase) * armSwing * 0.3);
         targetHeadRotY = Math.sin(t * 0.55) * 0.05;
         targetHeadRotX = Math.sin(t * 0.9) * 0.02;
       }
@@ -596,10 +729,51 @@ export default function Character({
       const shimmer = 1.0 + Math.sin(t * 5.2) * 0.16;
       ringGlowRef.current.scale.setScalar(shimmer);
     }
+
+    // Smooth facial blush glow ONLY after receiving bouquet (soft, natural rose warmth)
+    const targetBlushLevel =
+      (isMale && bouquetReaction === 'boy_blush') ||
+      (!isMale && bouquetReaction === 'girl_happy')
+        ? 1
+        : 0;
+    blushLevelRef.current = THREE.MathUtils.lerp(
+      blushLevelRef.current,
+      targetBlushLevel,
+      1 - Math.exp(-5.5 * delta)
+    );
+    const bLvl = blushLevelRef.current;
+    const baseOpacity = isMale ? 0.24 : 0.48;
+    const targetOpacity = THREE.MathUtils.lerp(baseOpacity, isMale ? 0.66 : 0.68, bLvl);
+    workingBlushColorRef.current.copy(baseBlushColorObj).lerp(activeBlushColorObj, bLvl);
+    if (leftBlushMatRef.current) {
+      leftBlushMatRef.current.opacity = targetOpacity;
+      leftBlushMatRef.current.color.copy(workingBlushColorRef.current);
+    }
+    if (rightBlushMatRef.current) {
+      rightBlushMatRef.current.opacity = targetOpacity;
+      rightBlushMatRef.current.color.copy(workingBlushColorRef.current);
+    }
+    const sx = THREE.MathUtils.lerp(0.026, 0.033, bLvl);
+    const sy = THREE.MathUtils.lerp(0.014, 0.0175, bLvl);
+    const sz = THREE.MathUtils.lerp(0.01, 0.0115, bLvl);
+    if (leftBlushMeshRef.current) leftBlushMeshRef.current.scale.set(sx, sy, sz);
+    if (rightBlushMeshRef.current) rightBlushMeshRef.current.scale.set(sx, sy, sz);
   });
 
   const showEngagementRing = isMale && action === 'propose_kneel';
   const showWeddingRing = isMale && action === 'vows';
+  const showCakeKnife = isMale && action === 'cake_cut';
+  const showCakeFork = action === 'cake_feed_give';
+  const showCustomBouquet =
+    Boolean(heldBouquet) &&
+    !showEngagementRing &&
+    !showWeddingRing &&
+    !showCakeKnife &&
+    !showCakeFork &&
+    action !== 'hug' &&
+    action !== 'kiss' &&
+    action !== 'propose_embrace' &&
+    action !== 'dance';
   const isSurprisedFace = !isMale && action === 'propose_surprised';
 
   return (
@@ -861,13 +1035,25 @@ export default function Character({
           </mesh>
 
           {/* Soft Cheek Warmth */}
-          <mesh position={[-0.082, -0.028, 0.123]} scale={[0.026, 0.014, 0.01]}>
+          <mesh ref={leftBlushMeshRef} position={[-0.082, -0.028, 0.123]} scale={[0.026, 0.014, 0.01]}>
             <sphereGeometry args={[1, 8, 6]} />
-            <meshStandardMaterial color={blushColor} roughness={0.72} transparent opacity={isMale ? 0.24 : 0.48} />
+            <meshStandardMaterial
+              ref={leftBlushMatRef}
+              color={blushColor}
+              roughness={0.72}
+              transparent
+              opacity={isMale ? 0.24 : 0.48}
+            />
           </mesh>
-          <mesh position={[0.082, -0.028, 0.123]} scale={[0.026, 0.014, 0.01]}>
+          <mesh ref={rightBlushMeshRef} position={[0.082, -0.028, 0.123]} scale={[0.026, 0.014, 0.01]}>
             <sphereGeometry args={[1, 8, 6]} />
-            <meshStandardMaterial color={blushColor} roughness={0.72} transparent opacity={isMale ? 0.24 : 0.48} />
+            <meshStandardMaterial
+              ref={rightBlushMatRef}
+              color={blushColor}
+              roughness={0.72}
+              transparent
+              opacity={isMale ? 0.24 : 0.48}
+            />
           </mesh>
 
           {/* Expressive Mouth (soft surprised 'o' or warm sculpted smile) */}
@@ -1123,13 +1309,17 @@ export default function Character({
             <mesh geometry={bodyGeometries.thumb} position={[0.031, -0.268, 0.02]}>
               <meshPhysicalMaterial color={skinColor} roughness={0.5} />
             </mesh>
-            {/* Bridal Bouquet (kept aside during ring exchange, hug, kiss, and sitting) */}
+            {/* Bridal Bouquet (kept aside during ring exchange, hug, kiss, cake cutting, celebrate, and sitting) */}
             {weddingMode &&
               !isMale &&
               action !== 'sit' &&
               action !== 'vows' &&
               action !== 'hug' &&
-              action !== 'kiss' && (
+              action !== 'kiss' &&
+              action !== 'cake_cut' &&
+              action !== 'cake_feed_give' &&
+              action !== 'cake_feed_receive' &&
+              action !== 'celebrate' && (
                 <group position={[0, -0.28, 0.095]}>
                   <mesh position={[0, -0.03, 0]}>
                     <cylinderGeometry args={[0.022, 0.014, 0.09, 8]} />
@@ -1220,7 +1410,6 @@ export default function Character({
                     clearcoat={1}
                   />
                 </mesh>
-                <pointLight position={[0, 0.08, 0.04]} intensity={1.8} color="#ffe4a8" distance={1.6} />
               </group>
             )}
 
@@ -1248,7 +1437,45 @@ export default function Character({
                     clearcoat={1}
                   />
                 </mesh>
-                <pointLight position={[0, 0.05, 0.05]} intensity={1.4} color="#ffe6ae" distance={1.3} />
+              </group>
+            )}
+
+            {/* Silver & Gold Wedding Cake Knife during Cake Cutting */}
+            {showCakeKnife && (
+              <group position={[0, -0.285, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+                <mesh position={[0, 0.06, 0]}>
+                  <cylinderGeometry args={[0.012, 0.014, 0.14, 8]} />
+                  <meshStandardMaterial color={COLORS.goldLight} metalness={0.72} roughness={0.22} />
+                </mesh>
+                <mesh position={[0, 0.23, 0]}>
+                  <boxGeometry args={[0.008, 0.22, 0.032]} />
+                  <meshStandardMaterial color="#edf2f7" metalness={0.88} roughness={0.14} />
+                </mesh>
+              </group>
+            )}
+
+            {/* Silver Dessert Fork & Frosted Cake Slice during Mutual Feeding */}
+            {showCakeFork && (
+              <group position={[0, -0.285, 0.045]} rotation={[Math.PI / 2, 0, 0]}>
+                <mesh position={[0, 0.075, 0]}>
+                  <cylinderGeometry args={[0.006, 0.007, 0.16, 8]} />
+                  <meshStandardMaterial color="#e6ecf2" metalness={0.85} roughness={0.16} />
+                </mesh>
+                <mesh position={[0, 0.165, 0.01]}>
+                  <boxGeometry args={[0.056, 0.042, 0.052]} />
+                  <meshStandardMaterial color="#fff3f6" roughness={0.46} />
+                </mesh>
+                <mesh position={[0, 0.188, 0.01]}>
+                  <boxGeometry args={[0.058, 0.012, 0.054]} />
+                  <meshStandardMaterial color="#f6c1d0" roughness={0.45} />
+                </mesh>
+              </group>
+            )}
+
+            {/* Custom Player-Created Bouquet Held Cleanly in Right Hand */}
+            {showCustomBouquet && heldBouquet && (
+              <group position={[0, -0.285, 0.052]} rotation={[0.92, 0.08, -0.08]}>
+                <CustomBouquetMesh design={heldBouquet} scale={0.94} />
               </group>
             )}
           </group>

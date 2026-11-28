@@ -15,11 +15,13 @@ import {
   reorderAdminPhotos,
   reorderAdminPrivateMemories,
   reorderAdminQuizQuestions,
+  resetAdminSecretPassword,
   resetAdminSecretProgress,
   updateAdminMusicTrack,
   updateAdminPhoto,
   updateAdminPrivateMemory,
   updateAdminQuizQuestion,
+  updateAdminSecretPassword,
   updateAdminSettings,
   updateAdminTexts,
   updateAdminVideo,
@@ -392,6 +394,7 @@ export default function AdminPanel() {
   const secretQuiz = useGameStore((s) => s.secretQuiz);
   const privateMemories = useGameStore((s) => s.privateMemories);
   const secretProgress = useGameStore((s) => s.secretProgress);
+  const secretPasswordConfigured = useGameStore((s) => s.secretPasswordConfigured);
 
   const setShowAdminPanel = useGameStore((s) => s.setShowAdminPanel);
   const setShowLoveAlbum = useGameStore((s) => s.setShowLoveAlbum);
@@ -448,6 +451,12 @@ export default function AdminPanel() {
   const [newQuizCorrect, setNewQuizCorrect] = useState<QuizOptionKey>('A');
   const [creatingQuiz, setCreatingQuiz] = useState(false);
   const [resettingProgress, setResettingProgress] = useState(false);
+
+  // Secret Room Password Settings state
+  const [secretPw, setSecretPw] = useState('');
+  const [secretPwConfirm, setSecretPwConfirm] = useState('');
+  const [savingSecretPw, setSavingSecretPw] = useState(false);
+  const [resettingSecretPw, setResettingSecretPw] = useState(false);
 
   // Private Memories state
   const [newPrivKind, setNewPrivKind] = useState<PrivateMemoryKind>('letter');
@@ -638,6 +647,167 @@ export default function AdminPanel() {
       notify(err instanceof Error ? err.message : 'Failed to save music assignment.', true);
     }
   };
+
+  const handleSaveSecretPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = secretPw.trim();
+    const trimmedConfirm = secretPwConfirm.trim();
+    if (!trimmed) {
+      notify('Please enter a Secret Room password.', true);
+      return;
+    }
+    if (trimmed.length < 2) {
+      notify('Secret Room password must be at least 2 characters.', true);
+      return;
+    }
+    if (trimmed !== trimmedConfirm) {
+      notify('New password and confirmation do not match.', true);
+      return;
+    }
+    setSavingSecretPw(true);
+    try {
+      const bundle = await updateAdminSecretPassword(adminToken, trimmed, trimmedConfirm);
+      applyMuseumBundle(bundle);
+      setSecretPw('');
+      setSecretPwConfirm('');
+      notify(
+        secretPasswordConfigured
+          ? 'Updated Secret Room password. Visitors must enter the new password to unlock the inner room.'
+          : 'Secret Room password saved and protected.'
+      );
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Failed to save Secret Room password.', true);
+    } finally {
+      setSavingSecretPw(false);
+    }
+  };
+
+  const handleResetSecretPassword = async () => {
+    setResettingSecretPw(true);
+    try {
+      const bundle = await resetAdminSecretPassword(adminToken);
+      applyMuseumBundle(bundle);
+      setSecretPw('');
+      setSecretPwConfirm('');
+      notify('Cleared Secret Room password and locked the inner Secret Room door.');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Failed to reset Secret Room password.', true);
+    } finally {
+      setResettingSecretPw(false);
+    }
+  };
+
+  const renderSecretPasswordCard = () => (
+    <form
+      onSubmit={handleSaveSecretPassword}
+      data-testid="admin-secret-password-card"
+      style={{
+        background: 'rgba(200, 165, 90, 0.08)',
+        border: '1px solid rgba(200, 165, 90, 0.34)',
+        borderRadius: 12,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15, color: COLORS.goldLight }}>
+            Secret Room Password Settings
+          </h3>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(248, 241, 229, 0.72)' }}>
+            Set or change the password required to unlock the inner Secret Room behind the Pre-Secret Room door. Passwords are hashed on the server and never exposed in client code.
+          </p>
+        </div>
+        <span
+          data-testid="admin-secret-password-status"
+          style={{
+            padding: '5px 10px',
+            borderRadius: 8,
+            fontSize: 11.5,
+            fontWeight: 600,
+            border: secretPasswordConfigured
+              ? '1px solid rgba(145, 218, 158, 0.45)'
+              : '1px solid rgba(240, 180, 110, 0.45)',
+            background: secretPasswordConfigured
+              ? 'rgba(62, 118, 72, 0.28)'
+              : 'rgba(130, 82, 32, 0.28)',
+            color: secretPasswordConfigured ? '#d8ffe0' : '#ffe4be',
+          }}
+        >
+          {secretPasswordConfigured ? 'Password Protected ✓' : 'Not Configured'}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+        <div>
+          <label
+            htmlFor="admin-secret-pw"
+            style={{ display: 'block', fontSize: 11, color: '#e8d7b3', marginBottom: 4 }}
+          >
+            {secretPasswordConfigured ? 'New Secret Room Password' : 'Set Secret Room Password'}
+          </label>
+          <input
+            id="admin-secret-pw"
+            data-testid="admin-secret-password-input"
+            type="password"
+            autoComplete="new-password"
+            value={secretPw}
+            onChange={(e) => setSecretPw(e.target.value)}
+            placeholder={secretPasswordConfigured ? 'Enter new password' : 'Enter password to enable door'}
+            style={panelInputStyle}
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="admin-secret-pw-confirm"
+            style={{ display: 'block', fontSize: 11, color: '#e8d7b3', marginBottom: 4 }}
+          >
+            Confirm Password
+          </label>
+          <input
+            id="admin-secret-pw-confirm"
+            data-testid="admin-secret-password-confirm"
+            type="password"
+            autoComplete="new-password"
+            value={secretPwConfirm}
+            onChange={(e) => setSecretPwConfirm(e.target.value)}
+            placeholder="Re-enter password to confirm"
+            style={panelInputStyle}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <button
+          type="button"
+          data-testid="btn-admin-reset-secret-password"
+          disabled={!secretPasswordConfigured || resettingSecretPw || savingSecretPw}
+          onClick={handleResetSecretPassword}
+          style={{
+            ...dangerBtnStyle,
+            opacity: !secretPasswordConfigured || resettingSecretPw ? 0.45 : 1,
+          }}
+        >
+          {resettingSecretPw ? 'Resetting…' : 'Reset Password'}
+        </button>
+
+        <button
+          type="submit"
+          data-testid="btn-admin-save-secret-password"
+          disabled={savingSecretPw || resettingSecretPw}
+          style={goldBtnStyle}
+        >
+          {savingSecretPw
+            ? 'Saving…'
+            : secretPasswordConfigured
+              ? 'Change Secret Password'
+              : 'Set Secret Password'}
+        </button>
+      </div>
+    </form>
+  );
 
   const spreads = buildAlbumSpreads(photos);
   const textCategories: Array<'Museum' | 'Album' | 'Theatre' | 'Garden' | 'Dance'> = [
@@ -1355,6 +1525,8 @@ export default function AdminPanel() {
                 </div>
               </div>
 
+              {renderSecretPasswordCard()}
+
               <div
                 style={{
                   background: 'rgba(255, 250, 240, 0.04)',
@@ -1471,6 +1643,8 @@ export default function AdminPanel() {
                   </div>
                 </div>
               </div>
+
+              {renderSecretPasswordCard()}
 
               {/* Add Quiz Question Form */}
               <form

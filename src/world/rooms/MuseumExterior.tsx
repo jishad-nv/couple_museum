@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import Floor from '../objects/Floor';
 import Wall from '../objects/Wall';
 import { Tree, Bush, GardenLamp, Flower } from '../objects/Decorations';
+import { LuxuryDoorArchwayFrame, LuxuryDoorLeaf } from '../objects/MuseumDoor';
 import { useGameStore } from '../../store/gameStore';
 import { COLORS, WALL_HEIGHT, WALL_THICKNESS } from '../../utils/constants';
 import {
@@ -121,11 +122,12 @@ export default function MuseumExterior() {
 
     // Animate double doors swinging inward smoothly
     const targetOpen = s.isMainDoorOpen ? 1 : 0;
-    openProgressRef.current = THREE.MathUtils.lerp(
+    const nextOpen = THREE.MathUtils.lerp(
       openProgressRef.current,
       targetOpen,
       1 - Math.exp(-3.5 * delta)
     );
+    openProgressRef.current = Math.abs(targetOpen - nextOpen) < 0.0005 ? targetOpen : nextOpen;
     const swingAngle = openProgressRef.current * 1.48;
     if (leftDoorRef.current) leftDoorRef.current.rotation.y = swingAngle;
     if (rightDoorRef.current) rightDoorRef.current.rotation.y = -swingAngle;
@@ -223,45 +225,43 @@ export default function MuseumExterior() {
 
       {/* Ornate Double Entrance Doors */}
       <group position={[0, 0, 4.0]}>
+        <LuxuryDoorArchwayFrame
+          openingWidth={doorHalfW * 2 + 0.04}
+          openingHeight={doorHeight + 0.04}
+          depth={0.56}
+          variant="entrance"
+        />
+
         {/* Left Door Leaf (hinged at x = -1.65) */}
         <group ref={leftDoorRef} position={[-doorHalfW, 0, 0]}>
-          <mesh position={[doorHalfW / 2, doorHeight / 2, 0]} castShadow>
-            <boxGeometry args={[doorHalfW - 0.03, doorHeight, 0.14]} />
-            <meshStandardMaterial color="#4e3022" roughness={0.45} />
-          </mesh>
-          <mesh position={[doorHalfW / 2, doorHeight / 2, 0.08]}>
-            <boxGeometry args={[doorHalfW - 0.34, doorHeight - 0.65, 0.03]} />
-            <meshStandardMaterial color={COLORS.gold} metalness={0.28} roughness={0.35} />
-          </mesh>
-          {/* Door Handle */}
-          <mesh position={[doorHalfW - 0.2, 1.35, 0.12]}>
-            <sphereGeometry args={[0.075, 10, 10]} />
-            <meshStandardMaterial color={COLORS.goldLight} metalness={0.35} roughness={0.25} />
-          </mesh>
+          <LuxuryDoorLeaf
+            width={doorHalfW - 0.02}
+            height={doorHeight}
+            thickness={0.14}
+            variant="entrance"
+            hingeSide="left"
+          />
         </group>
 
         {/* Right Door Leaf (hinged at x = +1.65) */}
         <group ref={rightDoorRef} position={[doorHalfW, 0, 0]}>
-          <mesh position={[-doorHalfW / 2, doorHeight / 2, 0]} castShadow>
-            <boxGeometry args={[doorHalfW - 0.03, doorHeight, 0.14]} />
-            <meshStandardMaterial color="#4e3022" roughness={0.45} />
-          </mesh>
-          <mesh position={[-doorHalfW / 2, doorHeight / 2, 0.08]}>
-            <boxGeometry args={[doorHalfW - 0.34, doorHeight - 0.65, 0.03]} />
-            <meshStandardMaterial color={COLORS.gold} metalness={0.28} roughness={0.35} />
-          </mesh>
-          <mesh position={[-(doorHalfW - 0.2), 1.35, 0.12]}>
-            <sphereGeometry args={[0.075, 10, 10]} />
-            <meshStandardMaterial color={COLORS.goldLight} metalness={0.35} roughness={0.25} />
-          </mesh>
+          <LuxuryDoorLeaf
+            width={doorHalfW - 0.02}
+            height={doorHeight}
+            thickness={0.14}
+            variant="entrance"
+            hingeSide="right"
+          />
         </group>
 
-        {/* Physics barrier when door is closed so player uses [OPEN MUSEUM] */}
-        {!isMainDoorOpen && (
-          <RigidBody type="fixed" colliders={false}>
-            <CuboidCollider args={[1.65, doorHeight / 2, 0.16]} position={[0, doorHeight / 2, 0]} />
-          </RigidBody>
-        )}
+        {/* Physics barrier toggled via sensor to avoid Rapier broadphase rebuild lag */}
+        <RigidBody type="fixed" colliders={false}>
+          <CuboidCollider
+            args={[1.65, doorHeight / 2, 0.16]}
+            position={[0, doorHeight / 2, 0]}
+            sensor={isMainDoorOpen}
+          />
+        </RigidBody>
       </group>
 
       {/* Architectural Stone Parapets & Lanterns framing Courtyard */}

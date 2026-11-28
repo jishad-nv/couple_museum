@@ -1,4 +1,5 @@
 import type { MuseumPhotoItem } from './museumContentTypes';
+import { GARDEN_BENCH_POSITIONS, type MuseumRoom } from './museumLayout';
 
 export interface AlbumSpread {
   spreadIndex: number;
@@ -6,6 +7,37 @@ export interface AlbumSpread {
   rightPage: MuseumPhotoItem | null;
   leftPageNumber: number;
   rightPageNumber: number;
+}
+
+export interface GardenSeatAlbumCheckInput {
+  currentRoom: MuseumRoom;
+  isSitting: boolean;
+  sittingBenchPosition: [number, number, number] | null;
+  playerPosition?: { x: number; z: number } | null;
+  modalOpen?: boolean;
+}
+
+export const GARDEN_BENCH_ALBUM_RADIUS = 2.4;
+
+/**
+ * Shows the contextual Garden "VIEW ALBUM" button strictly when the player is in
+ * the Garden, actively seated at one of the Garden benches, and no modal is open.
+ */
+export function isGardenSeatAlbumAvailable(input: GardenSeatAlbumCheckInput): boolean {
+  if (input.modalOpen) return false;
+  if (input.currentRoom !== 'garden') return false;
+  if (!input.isSitting) return false;
+
+  const refPos = input.sittingBenchPosition
+    ? { x: input.sittingBenchPosition[0], z: input.sittingBenchPosition[2] }
+    : input.playerPosition;
+  if (!refPos) return false;
+
+  return GARDEN_BENCH_POSITIONS.some(
+    (bench) =>
+      Math.hypot(refPos.x - bench.position[0], refPos.z - bench.position[2]) <=
+      GARDEN_BENCH_ALBUM_RADIUS
+  );
 }
 
 /**

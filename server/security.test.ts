@@ -93,12 +93,19 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    // 1. Public content loads seeded memories & settings
+    // 1. Public content loads seeded memories & settings without leaking any Secret Room password
     const pubRes = await fetch(`${baseUrl}/api/museum-content`);
     assert.equal(pubRes.status, 200);
-    const pubData = (await pubRes.json()) as { photos: Array<{ id: string }>; texts: Array<{ key: string }> };
+    const pubData = (await pubRes.json()) as {
+      photos: Array<{ id: string }>;
+      texts: Array<{ key: string }>;
+      secretPasswordConfigured?: boolean;
+    };
     assert.ok(pubData.photos.length >= 15);
     assert.ok(pubData.texts.length >= 10);
+    assert.equal(pubData.secretPasswordConfigured, true);
+    assert.equal(JSON.stringify(pubData).includes('scrypt:'), false);
+    assert.equal(JSON.stringify(pubData).includes('jooju8590921934'), false);
 
     // 2. Unauthorized admin requests are rejected (401)
     const unauthPost = await fetch(`${baseUrl}/api/admin/photos`, {
@@ -258,9 +265,19 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
       'Our Eternal Chronicles'
     );
 
-    // 5. Secret Room Quiz CRUD, Private Memory CRUD, and monotonic visitor progress + admin reset
+    // 5. Secret Room Quiz CRUD, Private Memory CRUD, backend password validation & admin password management
     const unauthReset = await fetch(`${baseUrl}/api/admin/secret/reset-progress`, { method: 'POST' });
     assert.equal(unauthReset.status, 401);
+
+    const unauthSetPw = await fetch(`${baseUrl}/api/admin/secret-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'hack', confirmPassword: 'hack' }),
+    });
+    assert.equal(unauthSetPw.status, 401);
+
+    const unauthDelPw = await fetch(`${baseUrl}/api/admin/secret-password`, { method: 'DELETE' });
+    assert.equal(unauthDelPw.status, 401);
 
     const unauthQuizCreate = await fetch(`${baseUrl}/api/admin/secret-quiz`, {
       method: 'POST',
@@ -273,11 +290,39 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
     });
     assert.equal(unauthQuizCreate.status, 401);
 
-    // Monotonic progress guard: cannot collect key or unlock 2nd door before yesConfirmed + quizCompleted
+    // Wrong password against seeded default is rejected with 401
+    const seededWrongVerify = await fetch(`${baseUrl}/api/secret/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: '143' }),
+    });
+    assert.equal(seededWrongVerify.status, 401);
+
+    // Seeded Secret Room password unlocks only when exact match is provided
+    const seededRightVerify = await fetch(`${baseUrl}/api/secret/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'jooju8590921934' }),
+    });
+    assert.equal(seededRightVerify.status, 200);
+    const seededRightJson = (await seededRightVerify.json()) as {
+      unlocked: boolean;
+      secretProgress: { secondDoorUnlocked: boolean };
+    };
+    assert.equal(seededRightJson.unlocked, true);
+    assert.equal(seededRightJson.secretProgress.secondDoorUnlocked, true);
+
+    // Reset progress before testing monotonic guard
+    await fetch(`${baseUrl}/api/admin/secret/reset-progress`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootJson.token}` },
+    });
+
+    // Monotonic progress guard + cannot unlock second door via /api/secret/progress
     const skipAttempt = await fetch(`${baseUrl}/api/secret/progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyCollected: true, secondDoorUnlocked: true }),
+      body: JSON.stringify({ keyCollected: true, secondDoorUnlocked: true, chamberDiscovered: true }),
     });
     assert.equal(skipAttempt.status, 200);
     const skipJson = (await skipAttempt.json()) as {
@@ -286,13 +331,15 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
         quizCompleted: boolean;
         keyCollected: boolean;
         secondDoorUnlocked: boolean;
+        chamberDiscovered: boolean;
       };
     };
     assert.equal(skipJson.secretProgress.yesConfirmed, false);
     assert.equal(skipJson.secretProgress.keyCollected, false);
     assert.equal(skipJson.secretProgress.secondDoorUnlocked, false);
+    assert.equal(skipJson.secretProgress.chamberDiscovered, false);
 
-    // Valid sequential steps persist
+    // Valid sequential steps persist, and secondDoorUnlocked stays false
     await fetch(`${baseUrl}/api/secret/progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -303,16 +350,109 @@ test('end-to-end API security: unauthenticated admin mutations rejected, bootstr
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quizCompleted: true, keyCollected: true }),
     });
-    const unlockStep = await fetch(`${baseUrl}/api/secret/progress`, {
+    const forgeUnlockStep = await fetch(`${baseUrl}/api/secret/progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secondDoorUnlocked: true, chamberDiscovered: true }),
     });
-    const unlockJson = (await unlockStep.json()) as {
+    const forgeUnlockJson = (await forgeUnlockStep.json()) as {
       secretProgress: { secondDoorUnlocked: boolean; chamberDiscovered: boolean };
     };
-    assert.equal(unlockJson.secretProgress.secondDoorUnlocked, true);
-    assert.equal(unlockJson.secretProgress.chamberDiscovered, true);
+    assert.equal(forgeUnlockJson.secretProgress.secondDoorUnlocked, false);
+    assert.equal(forgeUnlockJson.secretProgress.chamberDiscovered, false);
+
+    // Admin password validation: mismatched confirmation fails (400)
+    const mismatchPwRes = await fetch(`${baseUrl}/api/admin/secret-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bootJson.token}`,
+      },
+      body: JSON.stringify({ password: 'ForeverUs#2026', confirmPassword: 'Different#2026' }),
+    });
+    assert.equal(mismatchPwRes.status, 400);
+
+    // Admin sets Secret Room password (hashed with scrypt on backend, never exposed in bundle)
+    const setPwRes = await fetch(`${baseUrl}/api/admin/secret-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bootJson.token}`,
+      },
+      body: JSON.stringify({ password: 'ForeverUs#2026', confirmPassword: 'ForeverUs#2026' }),
+    });
+    assert.equal(setPwRes.status, 200);
+    const setPwJson = (await setPwRes.json()) as {
+      ok: boolean;
+      bundle: { secretPasswordConfigured: boolean };
+    };
+    assert.equal(setPwJson.ok, true);
+    assert.equal(setPwJson.bundle.secretPasswordConfigured, true);
+    assert.equal(JSON.stringify(setPwJson.bundle).includes('ForeverUs#2026'), false);
+    assert.ok(db.getSecretRoomPasswordHash().startsWith('scrypt:'));
+
+    // Wrong password returns 401 and keeps second door locked
+    const wrongPwRes = await fetch(`${baseUrl}/api/secret/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'wrong-password' }),
+    });
+    assert.equal(wrongPwRes.status, 401);
+    const wrongPwJson = (await wrongPwRes.json()) as { unlocked: boolean };
+    assert.equal(wrongPwJson.unlocked, false);
+
+    // Correct password unlocks the inner Secret Room door
+    const correctPwRes = await fetch(`${baseUrl}/api/secret/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'ForeverUs#2026' }),
+    });
+    assert.equal(correctPwRes.status, 200);
+    const correctPwJson = (await correctPwRes.json()) as {
+      ok: boolean;
+      unlocked: boolean;
+      secretProgress: { secondDoorUnlocked: boolean; chamberDiscovered: boolean };
+    };
+    assert.equal(correctPwJson.ok, true);
+    assert.equal(correctPwJson.unlocked, true);
+    assert.equal(correctPwJson.secretProgress.secondDoorUnlocked, true);
+    assert.equal(correctPwJson.secretProgress.chamberDiscovered, true);
+
+    // Changing the password re-locks the inner door
+    const changePwRes = await fetch(`${baseUrl}/api/admin/secret-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bootJson.token}`,
+      },
+      body: JSON.stringify({ password: 'NewSecret#99', confirmPassword: 'NewSecret#99' }),
+    });
+    assert.equal(changePwRes.status, 200);
+    const changePwJson = (await changePwRes.json()) as {
+      bundle: { secretPasswordConfigured: boolean; secretProgress: { secondDoorUnlocked: boolean } };
+    };
+    assert.equal(changePwJson.bundle.secretPasswordConfigured, true);
+    assert.equal(changePwJson.bundle.secretProgress.secondDoorUnlocked, false);
+
+    // Resetting the password clears configuration and keeps door locked
+    const delPwRes = await fetch(`${baseUrl}/api/admin/secret-password`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${bootJson.token}` },
+    });
+    assert.equal(delPwRes.status, 200);
+    const delPwJson = (await delPwRes.json()) as {
+      bundle: { secretPasswordConfigured: boolean; secretProgress: { secondDoorUnlocked: boolean } };
+    };
+    assert.equal(delPwJson.bundle.secretPasswordConfigured, false);
+    assert.equal(delPwJson.bundle.secretProgress.secondDoorUnlocked, false);
+
+    // After admin clears the password, verify-password refuses with 403
+    const unconfiguredVerify = await fetch(`${baseUrl}/api/secret/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'jooju8590921934' }),
+    });
+    assert.equal(unconfiguredVerify.status, 403);
 
     // Authenticated admin updates quiz + adds private memory + resets progress
     const addQuizRes = await fetch(`${baseUrl}/api/admin/secret-quiz`, {

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { hashPassword } from './security.ts';
 import {
   DEFAULT_MUSEUM_MUSIC,
   DEFAULT_MUSEUM_PHOTOS,
@@ -392,6 +393,22 @@ export class MuseumDatabase {
          VALUES ('default', 0, 0, 0, 0, 0, ?)`
       )
       .run(now);
+
+    const pwVersionRow = this.db
+      .prepare('SELECT value FROM site_settings WHERE key = ?')
+      .get('secretRoomPasswordSeedVersion') as { value: string } | undefined;
+    if (pwVersionRow?.value !== 'jooju-v1') {
+      const initialPassword =
+        process.env.SECRET_ROOM_PASSWORD?.trim() || 'jooju8590921934';
+      const hash = hashPassword(initialPassword);
+      this.db
+        .prepare('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)')
+        .run('secretRoomPasswordHash', hash);
+      this.db
+        .prepare('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)')
+        .run('secretRoomPasswordSeedVersion', 'jooju-v1');
+      this.lockSecondDoor();
+    }
   }
 
   // ─── Admin Auth & Revocation ───────────────────────────────────────────────
@@ -752,6 +769,7 @@ export class MuseumDatabase {
       secretQuiz: this.getSecretQuiz(),
       privateMemories: this.getPrivateMemories(),
       secretProgress: this.getSecretProgress(),
+      secretPasswordConfigured: this.isSecretRoomPasswordSet(),
     };
   }
 
@@ -1110,6 +1128,79 @@ export class MuseumDatabase {
     return next;
   }
 
+  isSecretRoomPasswordSet(): boolean {
+    return this.getSecretRoomPasswordHash().length > 0;
+  }
+
+  getSecretRoomPasswordHash(): string {
+    const row = this.db
+      .prepare('SELECT value FROM site_settings WHERE key = ?')
+      .get('secretRoomPasswordHash') as { value: string } | undefined;
+    return row?.value ? row.value : '';
+  }
+
+  setSecretRoomPassword(hash: string): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)')
+      .run('secretRoomPasswordHash', hash);
+    this.lockSecondDoor();
+  }
+
+  clearSecretRoomPassword(): void {
+    this.db
+      .prepare('DELETE FROM site_settings WHERE key = ?')
+      .run('secretRoomPasswordHash');
+    this.lockSecondDoor();
+  }
+
+  lockSecondDoor(): SecretMysteryProgress {
+    const cur = this.getSecretProgress();
+    const updatedAt = Date.now();
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO secret_progress
+         (id, yes_confirmed, quiz_completed, key_collected, secret_door_unlocked, second_door_unlocked, chamber_discovered, updated_at)
+         VALUES ('default', ?, ?, ?, ?, 0, ?, ?)`
+      )
+      .run(
+        cur.yesConfirmed ? 1 : 0,
+        cur.quizCompleted ? 1 : 0,
+        cur.keyCollected ? 1 : 0,
+        cur.secretDoorUnlocked ? 1 : 0,
+        cur.chamberDiscovered ? 1 : 0,
+        updatedAt
+      );
+    return {
+      ...cur,
+      secondDoorUnlocked: false,
+      updatedAt,
+    };
+  }
+
+  unlockSecondDoor(): SecretMysteryProgress {
+    const cur = this.getSecretProgress();
+    const updatedAt = Date.now();
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO secret_progress
+         (id, yes_confirmed, quiz_completed, key_collected, secret_door_unlocked, second_door_unlocked, chamber_discovered, updated_at)
+         VALUES ('default', ?, ?, ?, ?, 1, 1, ?)`
+      )
+      .run(
+        cur.yesConfirmed ? 1 : 0,
+        cur.quizCompleted ? 1 : 0,
+        cur.keyCollected ? 1 : 0,
+        cur.secretDoorUnlocked ? 1 : 0,
+        updatedAt
+      );
+    return {
+      ...cur,
+      secondDoorUnlocked: true,
+      chamberDiscovered: true,
+      updatedAt,
+    };
+  }
+
   // ─── Secret Room Mystery Progress & Content CRUD ───────────────────────────
 
   updateSecretProgress(
@@ -1120,11 +1211,10 @@ export class MuseumDatabase {
     const quizCompleted = cur.quizCompleted || (yesConfirmed && Boolean(patch.quizCompleted));
     const keyCollected = cur.keyCollected || (quizCompleted && Boolean(patch.keyCollected));
     const secretDoorUnlocked =
-      cur.secretDoorUnlocked || (keyCollected && Boolean(patch.secretDoorUnlocked));
-    const secondDoorUnlocked =
-      cur.secondDoorUnlocked || (keyCollected && Boolean(patch.secondDoorUnlocked));
-    const chamberDiscovered =
-      cur.chamberDiscovered || (secondDoorUnlocked && Boolean(patch.chamberDiscovered));
+      cur.secretDoorUnlocked || Boolean(patch.secretDoorUnlocked);
+    // Inner Secret Room door (secondDoorUnlocked) can ONLY be unlocked via backend password verification
+    const secondDoorUnlocked = cur.secondDoorUnlocked;
+    const chamberDiscovered = cur.chamberDiscovered;
     const updatedAt = Date.now();
 
     this.db

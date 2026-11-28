@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { RigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { COLORS } from '../../utils/constants';
@@ -10,7 +10,14 @@ interface FloorProps {
   color?: string;
 }
 
-function createTileTexture(baseColor: string, lineColor: string, isGarden: boolean): THREE.CanvasTexture {
+const floorTileCanvasCache = new Map<string, HTMLCanvasElement>();
+const floorTileTextureCache = new Map<string, THREE.CanvasTexture>();
+
+function getOrCreateTileCanvas(baseColor: string, lineColor: string, isGarden: boolean): HTMLCanvasElement {
+  const canvasKey = `${baseColor}:${lineColor}:${isGarden ? 'g' : 'm'}`;
+  const existing = floorTileCanvasCache.get(canvasKey);
+  if (existing) return existing;
+
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
@@ -20,7 +27,6 @@ function createTileTexture(baseColor: string, lineColor: string, isGarden: boole
     ctx.fillRect(0, 0, 256, 256);
 
     if (isGarden) {
-      // Natural organic night meadow texture with soft moss, clover & blade variation
       for (let i = 0; i < 650; i++) {
         const hx = Math.abs(Math.sin(i * 12.9898 + 1.23) * 43758.5453) % 1;
         const hy = Math.abs(Math.sin(i * 78.233 + 4.56) * 29431.1357) % 1;
@@ -37,7 +43,6 @@ function createTileTexture(baseColor: string, lineColor: string, isGarden: boole
         ctx.fillRect(x, y, i % 5 === 0 ? 4 : 2, 5 + (i % 4));
       }
     } else {
-      // Crisp marble tile grid with soft veining
       ctx.strokeStyle = lineColor;
       ctx.lineWidth = 2;
       ctx.strokeRect(0, 0, 128, 128);
@@ -56,10 +61,29 @@ function createTileTexture(baseColor: string, lineColor: string, isGarden: boole
     }
   }
 
+  floorTileCanvasCache.set(canvasKey, canvas);
+  return canvas;
+}
+
+function getCachedFloorTexture(
+  baseColor: string,
+  lineColor: string,
+  isGarden: boolean,
+  repW: number,
+  repD: number
+): THREE.CanvasTexture {
+  const texKey = `${baseColor}:${lineColor}:${isGarden ? 'g' : 'm'}:${repW.toFixed(2)}:${repD.toFixed(2)}`;
+  const cached = floorTileTextureCache.get(texKey);
+  if (cached) return cached;
+
+  const canvas = getOrCreateTileCanvas(baseColor, lineColor, isGarden);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repW, repD);
+  tex.needsUpdate = true;
+  floorTileTextureCache.set(texKey, tex);
   return tex;
 }
 
@@ -73,14 +97,10 @@ export default function Floor({
   const [sizeW, sizeD] = size;
 
   const texture = useMemo(() => {
-    const tex = createTileTexture(baseColor, 'rgba(170, 155, 136, 0.35)', isGarden);
-    tex.repeat.set(Math.max(1, sizeW / 3), Math.max(1, sizeD / 3));
-    return tex;
+    const repW = Math.max(1, sizeW / 3);
+    const repD = Math.max(1, sizeD / 3);
+    return getCachedFloorTexture(baseColor, 'rgba(170, 155, 136, 0.35)', isGarden, repW, repD);
   }, [baseColor, isGarden, sizeW, sizeD]);
-
-  useEffect(() => {
-    return () => texture.dispose();
-  }, [texture]);
 
   return (
     <RigidBody type="fixed" colliders="cuboid" position={[position[0], position[1] - 0.1, position[2]]}>

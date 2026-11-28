@@ -9,6 +9,7 @@ import {
   clampCameraPitch,
   getCameraColliders,
 } from '../utils/museumLayout';
+import { getCakeCameraFraming } from '../utils/weddingCake';
 
 export default function ThirdPersonCamera() {
   const { camera, gl } = useThree();
@@ -40,7 +41,11 @@ export default function ThirdPersonCamera() {
       s.showLoveAlbum ||
       s.showSecretLetterModal ||
       s.showAdminLogin ||
-      s.showAdminPanel
+      s.showAdminPanel ||
+      s.showBouquetCreator ||
+      s.showGenderModal ||
+      (!s.hasAnsweredGenderPrompt && !s.isLoading) ||
+      (s.isMobile && s.isPortrait)
     ) {
       return;
     }
@@ -89,7 +94,11 @@ export default function ThirdPersonCamera() {
       s.showLoveAlbum ||
       s.showSecretLetterModal ||
       s.showAdminLogin ||
-      s.showAdminPanel
+      s.showAdminPanel ||
+      s.showBouquetCreator ||
+      s.showGenderModal ||
+      (!s.hasAnsweredGenderPrompt && !s.isLoading) ||
+      (s.isMobile && s.isPortrait)
     ) {
       return;
     }
@@ -161,22 +170,71 @@ export default function ThirdPersonCamera() {
     const partnerDist = Math.hypot(pPos.x - partnerPos.x, pPos.z - partnerPos.z);
     const inProposal = s.proposalStage !== 'idle';
     const inWeddingVows = s.currentRoom === 'wedding' && s.weddingStage === 'vows';
+    const inCakeCutting = s.currentRoom === 'wedding' && s.cakeCuttingStage !== 'idle';
+    const inBouquetHandover = s.bouquetHandoverStage !== 'idle' && Boolean(s.bouquetHandoverAnchor);
     const frameCouple =
       (s.isHoldingHands ||
         s.isSitting ||
         s.activeCoupleSequence !== 'none' ||
         inProposal ||
+        inBouquetHandover ||
         s.currentRoom === 'wedding') &&
-      partnerDist < 3.2;
+      partnerDist < 3.4;
     const anchorX = frameCouple ? (pPos.x + partnerPos.x) * 0.5 : pPos.x;
     const anchorZ = frameCouple ? (pPos.z + partnerPos.z) * 0.5 : pPos.z;
     const anchorY = pPos.y;
 
     if (s.cameraMode === 'third-person') {
-      if (inWeddingVows) {
+      if (inCakeCutting) {
+        const framing = getCakeCameraFraming();
+        desiredPos.current.set(...framing.position);
+        lookTarget.current.set(...framing.lookAt);
+      } else if (inWeddingVows) {
         // Smooth 3/4 ceremony close-up framing the face-to-face ring clasp & floral wedding arch
         desiredPos.current.set(anchorX + 0.34, anchorY + 1.38, anchorZ + 2.08);
         lookTarget.current.set(anchorX, anchorY + 1.08, anchorZ - 0.06);
+      } else if (inBouquetHandover && s.bouquetHandoverAnchor) {
+        const anchor = s.bouquetHandoverAnchor;
+        const giverPos = anchor.giver === 'boy' ? anchor.boyPos : anchor.girlPos;
+        const receiverPos = anchor.receiver === 'boy' ? anchor.boyPos : anchor.girlPos;
+        const dx = receiverPos[0] - giverPos[0];
+        const dz = receiverPos[2] - giverPos[2];
+        const len = Math.max(0.01, Math.hypot(dx, dz));
+        const fx = dx / len;
+        const fz = dz / len;
+        // Pick perpendicular side facing open room center so wall never occludes
+        const px1 = -fz;
+        const pz1 = fx;
+        const toCenterX = -anchorX;
+        const toCenterZ = -21.5 - anchorZ;
+        const sideSign = px1 * toCenterX + pz1 * toCenterZ >= 0 ? 1 : -1;
+        const sideX = px1 * sideSign;
+        const sideZ = pz1 * sideSign;
+
+        // Slight 3/4 front bias toward receiver's face so bouquet + blush/smile are crystal clear
+        rayOrigin.current.set(anchorX, anchorY + 1.32, anchorZ);
+        desiredPos.current.set(
+          anchorX + sideX * 2.35 - fx * 0.65,
+          anchorY + 1.56,
+          anchorZ + sideZ * 2.35 - fz * 0.65
+        );
+        rayDir.current.copy(desiredPos.current).sub(rayOrigin.current);
+        const maxRayLen = rayDir.current.length();
+        if (maxRayLen > 0.01) {
+          rayDir.current.divideScalar(maxRayLen);
+          raycaster.current.set(rayOrigin.current, rayDir.current);
+          raycaster.current.far = maxRayLen;
+          const colliders = getCameraColliders();
+          if (colliders.length > 0) {
+            const hits = raycaster.current.intersectObjects(colliders, false);
+            if (hits.length > 0 && hits[0].distance < maxRayLen) {
+              const safeDist = Math.max(0.85, hits[0].distance - 0.35);
+              desiredPos.current.copy(rayOrigin.current).addScaledVector(rayDir.current, safeDist);
+            }
+          }
+        }
+        desiredPos.current.y = Math.max(CAMERA_BOUNDS.minHeight, desiredPos.current.y);
+        lookTarget.current.set(anchorX, anchorY + 1.28, anchorZ);
       } else {
         const baseDist = clampCameraDistance(s.cameraDistance);
         const dist = inProposal ? Math.min(baseDist, 3.6) : baseDist;
@@ -237,9 +295,11 @@ export default function ThirdPersonCamera() {
         currentPosition.current.copy(desiredPos.current);
         currentLookAt.current.copy(lookTarget.current);
       } else {
-        const damp = 1 - Math.exp(-(inWeddingVows ? 6.5 : 9) * delta);
+        const dampRate = inCakeCutting ? 5.2 : inWeddingVows ? 6.5 : 9;
+        const lookRate = inCakeCutting ? 7.2 : inWeddingVows ? 8.5 : 12;
+        const damp = 1 - Math.exp(-dampRate * delta);
         currentPosition.current.lerp(desiredPos.current, damp);
-        currentLookAt.current.lerp(lookTarget.current, 1 - Math.exp(-(inWeddingVows ? 8.5 : 12) * delta));
+        currentLookAt.current.lerp(lookTarget.current, 1 - Math.exp(-lookRate * delta));
       }
 
       camera.position.copy(currentPosition.current);

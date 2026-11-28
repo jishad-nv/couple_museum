@@ -18,18 +18,33 @@ export default function EntranceGuestbook() {
   const setShowGuestbookModal = useGameStore((s) => s.setShowGuestbookModal);
   const isMobile = useGameStore((s) => s.isMobile);
 
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  const isPortrait = useGameStore((s) => s.isPortrait);
+
+  const [viewport, setViewport] = useState(() =>
+    typeof window !== 'undefined'
+      ? { width: window.innerWidth, height: window.innerHeight }
+      : { width: 1440, height: 900 }
+  );
+  const [isCollapsed, setIsCollapsed] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.innerWidth > window.innerHeight && window.innerHeight <= 520
+      : false
   );
 
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth <= 768);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const syncViewport = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', syncViewport);
+    window.addEventListener('orientationchange', syncViewport);
+    return () => {
+      window.removeEventListener('resize', syncViewport);
+      window.removeEventListener('orientationchange', syncViewport);
+    };
   }, []);
 
   if (
+    (isMobile && isPortrait) ||
     currentRoom !== 'entrance' ||
     showGuestbookModal ||
     showPhotoViewer ||
@@ -41,6 +56,9 @@ export default function EntranceGuestbook() {
     return null;
   }
 
+  const isNarrow = viewport.width <= 768;
+  const isLandscapeMobile =
+    isMobile && viewport.width > viewport.height && viewport.height <= 520;
   const compact = isMobile || isNarrow;
   const recentEntries = getRecentGuestbookEntries(guestbookEntries, compact ? 2 : 3);
 
@@ -51,9 +69,25 @@ export default function EntranceGuestbook() {
       className="ui-overlay"
       style={{
         position: 'fixed',
-        top: compact ? 58 : 66,
-        left: compact ? 10 : 20,
-        width: compact ? 'min(260px, calc(100vw - 194px))' : 316,
+        top: isLandscapeMobile
+          ? 'calc(96px + env(safe-area-inset-top))'
+          : compact
+          ? 58
+          : 66,
+        left: isLandscapeMobile
+          ? 'calc(12px + env(safe-area-inset-left))'
+          : compact
+          ? 10
+          : 20,
+        width: isLandscapeMobile
+          ? isCollapsed
+            ? 'auto'
+            : 'min(238px, calc(100vw - 250px))'
+          : compact
+          ? 'min(260px, calc(100vw - 194px))'
+          : 316,
+        maxHeight: isLandscapeMobile ? 'calc(100dvh - 216px)' : 'none',
+        overflowY: isLandscapeMobile && !isCollapsed ? 'auto' : 'visible',
         background: 'rgba(24, 14, 28, 0.88)',
         border: '1px solid rgba(200, 165, 90, 0.42)',
         borderRadius: 12,

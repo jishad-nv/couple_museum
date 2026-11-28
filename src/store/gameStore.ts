@@ -12,7 +12,9 @@ import {
   DANCE_SPOT_POS,
   PRIVATE_CHAMBER_ARRIVAL_POS,
   PRIVATE_CHAMBER_RETURN_POS,
+  PRIVATE_DOOR_POS,
   SECRET_ARRIVAL_POS,
+  SECRET_DOOR_POS,
   SECRET_RETURN_POS,
   WEDDING_ALTAR_CENTER,
   WEDDING_ARRIVAL_POS,
@@ -64,6 +66,26 @@ import {
   postSecretProgress,
   type AdminUserSummary,
 } from '../utils/apiClient';
+import {
+  detectMobileTouchDevice,
+  isPortraitViewport,
+  readBrowserViewportSnapshot,
+} from '../utils/orientation';
+import type { ContentLoadStatus } from '../utils/loadingReadiness';
+import type { CakeCuttingStage } from '../utils/weddingCake';
+import {
+  computeBouquetHandoverAnchor,
+  hasBouquetLetter,
+  isBouquetHandoverBusy,
+  type BouquetDesign,
+  type BouquetHandoverAnchor,
+  type BouquetHandoverStage,
+  type PlayerGender,
+} from '../utils/bouquet';
+
+const initialViewport = readBrowserViewportSnapshot();
+const initialIsMobile = detectMobileTouchDevice(initialViewport);
+const initialIsPortrait = isPortraitViewport(initialViewport.width, initialViewport.height);
 
 const isAutostart =
   typeof window !== 'undefined' &&
@@ -87,6 +109,8 @@ export type CoupleSequenceType = 'none' | 'hug' | 'kiss' | 'sit_transition' | 's
 
 export interface ScriptedWalkRequest {
   target: [number, number, number];
+  waypoints?: Array<[number, number, number]>;
+  waypointIndex?: number;
   facing: number;
   onArrive?:
     | 'none'
@@ -108,7 +132,11 @@ export interface GameState {
   textsMap: Record<string, string>;
   musicTracks: MuseumMusicTrack[];
   museumSettings: MuseumSettings;
+  secretPasswordConfigured: boolean;
   contentLoaded: boolean;
+  contentStatus: ContentLoadStatus;
+  contentError: string | null;
+  sceneReady: boolean;
 
   // Player
   playerPosition: THREE.Vector3;
@@ -175,6 +203,8 @@ export interface GameState {
   brideOutfit: BrideOutfitConfig;
   groomOutfit: GroomOutfitConfig;
   weddingBannerMessage: string | null;
+  cakeCuttingStage: CakeCuttingStage;
+  cakeHasBeenCut: boolean;
 
   // Proposal Sequence & Responsive Toolbar State
   proposalStage: ProposalStage;
@@ -217,6 +247,8 @@ export interface GameState {
   isMusicPlaying: boolean;
   isMuted: boolean;
   showControls: boolean;
+  showOutfitCustomizer: boolean;
+  showPasswordModal: boolean;
 
   // Admin Session (strictly in-memory token — never persisted to Web Storage)
   showAdminLogin: boolean;
@@ -224,16 +256,28 @@ export interface GameState {
   adminToken: string | null;
   adminUser: AdminUserSummary | null;
 
-  // Mobile
+  // Mobile & Orientation
   isMobile: boolean;
+  isPortrait: boolean;
   joystickInput: JoystickInput;
 
-  // Character
+  // Character & Bouquet Experience
+  playerGender: PlayerGender | null;
+  hasAnsweredGenderPrompt: boolean;
+  showGenderModal: boolean;
+  showBouquetCreator: boolean;
+  createdBouquet: BouquetDesign | null;
+  heldBouquetBy: PlayerGender | null;
+  bouquetHandoverStage: BouquetHandoverStage;
+  bouquetHandoverAnchor: BouquetHandoverAnchor | null;
+  showBouquetNoteBanner: boolean;
   characterAction: string;
   companionAction: string;
 
-  // Backend hydration
+  // Backend hydration & readiness
   loadMuseumContent: () => Promise<void>;
+  retryLoadMuseumContent: () => Promise<void>;
+  markSceneReady: () => void;
   applyMuseumBundle: (bundle: MuseumContentBundle) => void;
 
   // Actions
@@ -281,6 +325,7 @@ export interface GameState {
   toggleTheatreDoor: () => void;
   setGardenDoorOpen: (open: boolean) => void;
   setSecretDoorOpen: (open: boolean) => void;
+  setPrivateDoorOpen: (open: boolean) => void;
   setWeddingDoorOpen: (open: boolean) => void;
   enterSecretRoom: () => void;
   exitSecretRoom: () => void;
@@ -307,6 +352,9 @@ export interface GameState {
   celebrateWedding: () => void;
   setWeddingStage: (stage: WeddingStage) => void;
   setWeddingPhase: (phase: number) => void;
+  startCakeCutting: () => void;
+  setCakeCuttingStage: (stage: CakeCuttingStage) => void;
+  finishCakeCutting: () => void;
   setVideoUrl: (url: string) => void;
   setCinemaPlaying: (playing: boolean) => void;
   setCinemaTime: (time: number) => void;
@@ -343,10 +391,24 @@ export interface GameState {
   toggleMusic: () => void;
   toggleMute: () => void;
   setShowControls: (show: boolean) => void;
+  setShowOutfitCustomizer: (show: boolean) => void;
+  setShowPasswordModal: (show: boolean) => void;
   setIsMobile: (mobile: boolean) => void;
+  setIsPortrait: (portrait: boolean) => void;
   setJoystickInput: (input: JoystickInput) => void;
   setCharacterAction: (action: string) => void;
   setCompanionAction: (action: string) => void;
+
+  // Gender & Bouquet actions
+  setPlayerGender: (gender: PlayerGender) => void;
+  setShowGenderModal: (show: boolean) => void;
+  openBouquetCreator: () => void;
+  closeBouquetCreator: () => void;
+  saveCreatedBouquet: (design: BouquetDesign) => void;
+  startGiveBouquet: () => void;
+  setBouquetHandoverStage: (stage: BouquetHandoverStage) => void;
+  finishGiveBouquet: () => void;
+  dismissBouquetNote: () => void;
 
   // Admin actions
   setShowAdminLogin: (show: boolean) => void;
@@ -363,7 +425,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   textsMap: textsArrayToMap(DEFAULT_MUSEUM_TEXTS),
   musicTracks: DEFAULT_MUSEUM_MUSIC,
   museumSettings: DEFAULT_MUSEUM_SETTINGS,
+  secretPasswordConfigured: false,
   contentLoaded: false,
+  contentStatus: 'loading',
+  contentError: null,
+  sceneReady: false,
 
   // Player starts outside the Grand Museum Exterior facing North (-Z, rotation = Math.PI)
   playerPosition: new THREE.Vector3(-0.38, 0, 12.5),
@@ -429,6 +495,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   brideOutfit: DEFAULT_BRIDE_OUTFIT,
   groomOutfit: DEFAULT_GROOM_OUTFIT,
   weddingBannerMessage: null,
+  cakeCuttingStage: 'idle',
+  cakeHasBeenCut: false,
 
   // Proposal Sequence & Responsive Toolbar State
   proposalStage: 'idle',
@@ -466,6 +534,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   isMusicPlaying: DEFAULT_MUSEUM_SETTINGS.musicEnabled,
   isMuted: false,
   showControls: false,
+  showOutfitCustomizer: false,
+  showPasswordModal: false,
 
   // Admin Session (in-memory only)
   showAdminLogin: false,
@@ -473,20 +543,49 @@ export const useGameStore = create<GameState>((set, get) => ({
   adminToken: null,
   adminUser: null,
 
-  // Mobile
-  isMobile: false,
+  // Mobile & Orientation
+  isMobile: initialIsMobile,
+  isPortrait: initialIsPortrait,
   joystickInput: { x: 0, y: 0 },
 
-  // Character
+  // Character & Bouquet Experience
+  playerGender: null,
+  hasAnsweredGenderPrompt: false,
+  showGenderModal: false,
+  showBouquetCreator: false,
+  createdBouquet: null,
+  heldBouquetBy: null,
+  bouquetHandoverStage: 'idle',
+  bouquetHandoverAnchor: null,
+  showBouquetNoteBanner: false,
   characterAction: 'idle',
   companionAction: 'idle',
 
   loadMuseumContent: async () => {
+    set({ contentStatus: 'loading', contentError: null });
     try {
       const bundle = await fetchMuseumContent();
       get().applyMuseumBundle(bundle);
-    } catch {
-      set({ contentLoaded: true });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Unable to load museum memories. Please check your connection.';
+      set({
+        contentStatus: 'error',
+        contentError: message,
+        contentLoaded: false,
+      });
+    }
+  },
+
+  retryLoadMuseumContent: async () => {
+    await get().loadMuseumContent();
+  },
+
+  markSceneReady: () => {
+    if (!get().sceneReady) {
+      set({ sceneReady: true });
     }
   },
 
@@ -513,6 +612,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? bundle.privateMemories
           : s.privateMemories,
       secretProgress: bundle.secretProgress ?? s.secretProgress,
+      secretPasswordConfigured: Boolean(bundle.secretPasswordConfigured),
       isSecretDoorOpen: bundle.secretProgress
         ? bundle.secretProgress.secretDoorUnlocked
           ? s.isSecretDoorOpen
@@ -525,6 +625,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         : s.isPrivateDoorOpen,
       showKeyRewardPrompt: bundle.secretProgress?.keyCollected ? false : s.showKeyRewardPrompt,
       contentLoaded: true,
+      contentStatus: 'ready',
+      contentError: null,
     }));
   },
 
@@ -549,29 +651,30 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Couple & Dance
   setIsHoldingHands: (holding) => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set({ isHoldingHands: holding });
   },
   toggleHoldHands: () => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set((s) => ({ isHoldingHands: !s.isHoldingHands }));
   },
   setIsWalkingTogether: (walking) => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set({ isWalkingTogether: walking });
   },
   toggleWalkTogether: () => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set((s) => ({ isWalkingTogether: !s.isWalkingTogether }));
   },
 
   startCoupleSequence: (seq) => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set({
       activeCoupleSequence: seq,
       sequenceProgress: 0,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       scriptedWalk: null,
       characterAction: seq === 'hug' || seq === 'kiss' ? seq : 'idle',
@@ -589,16 +692,23 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   startDanceMode: () => {
     const s = get();
-    if (isProposalBusy(s.proposalStage)) return;
+    if (isProposalBusy(s.proposalStage) || isBouquetHandoverBusy(s.bouquetHandoverStage)) return;
     // Ensure closed room doorways don't block the couple walking to the Dance Pavilion
     const openMain = s.currentRoom === 'exterior' ? true : s.isMainDoorOpen;
     const openTheatre = s.currentRoom === 'cinema' ? true : s.isTheatreDoorOpen;
     const openGarden = s.currentRoom === 'garden' ? true : s.isGardenDoorOpen;
+    const openSecret =
+      s.currentRoom === 'secret' || s.currentRoom === 'private_chamber'
+        ? true
+        : s.isSecretDoorOpen;
+    const openPrivate = s.currentRoom === 'private_chamber' ? true : s.isPrivateDoorOpen;
 
     set({
       isMainDoorOpen: openMain,
       isTheatreDoorOpen: openTheatre,
       isGardenDoorOpen: openGarden,
+      isSecretDoorOpen: openSecret,
+      isPrivateDoorOpen: openPrivate,
       isSitting: false,
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
@@ -643,14 +753,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Proposal Sequence Actions
   startProposal: () => {
     const s = get();
-    if (isProposalBusy(s.proposalStage)) return;
+    if (isProposalBusy(s.proposalStage) || isBouquetHandoverBusy(s.bouquetHandoverStage)) return;
     if (
       !isSuitableProposalLocation(s.currentRoom, s.playerPosition, {
         isSitting: s.isSitting,
         isDancing: s.isDancing,
         proposalStage: s.proposalStage,
         activeCoupleSequence: s.activeCoupleSequence,
-        secretRoomUnlocked: s.secretProgress.secretDoorUnlocked,
+        secretRoomUnlocked: s.secretProgress.secondDoorUnlocked,
       })
     ) {
       return;
@@ -658,6 +768,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const anchor = computeProposalPositions(s.playerPosition, s.playerRotation, 0.98);
     set({
       proposalStage: 'approaching',
+      proposalAccepted: false,
       proposalAnchor: anchor,
       showProposalModal: false,
       isHoldingHands: false,
@@ -738,6 +849,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   declineProposal: () => {
     set({
       showProposalModal: false,
+      proposalAccepted: false,
       proposalStage: 'idle',
       proposalAnchor: null,
       characterAction: 'idle',
@@ -753,6 +865,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   finishProposal: () =>
     set({
+      proposalAccepted: false,
       proposalStage: 'idle',
       proposalAnchor: null,
       showProposalModal: false,
@@ -766,11 +879,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Scripted walk
   startScriptedWalk: (req) => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set({
       scriptedWalk: req,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
     });
@@ -779,10 +893,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Sitting
   sitDown: (benchPos, benchRot = 0) => {
-    if (isProposalBusy(get().proposalStage)) return;
+    if (isProposalBusy(get().proposalStage) || isBouquetHandoverBusy(get().bouquetHandoverStage)) return;
     set({
       isSitting: true,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: benchPos,
       sittingBenchRotation: benchRot,
       scriptedWalk: null,
@@ -805,79 +920,49 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleTheatreDoor: () => set((s) => ({ isTheatreDoorOpen: !s.isTheatreDoorOpen })),
   setGardenDoorOpen: (open) => set({ isGardenDoorOpen: open }),
   setSecretDoorOpen: (open) => set({ isSecretDoorOpen: open }),
+  setPrivateDoorOpen: (open) => set({ isPrivateDoorOpen: open }),
   setWeddingDoorOpen: (open) => set({ isWeddingDoorOpen: open }),
 
   enterSecretRoom: () => {
     const s = get();
-    if (!s.secretProgress.secretDoorUnlocked) {
-      if (!s.secretProgress.keyCollected) {
-        set({
-          isSecretDoorOpen: false,
-          scriptedWalk: null,
-          secretHintBanner: !s.secretProgress.yesConfirmed
-            ? 'Secret Room is locked! Approach the Quiz Master nearby to begin the Love Test and earn the Golden Key.'
-            : !s.secretProgress.quizCompleted
-            ? 'Secret Room is locked! Complete the 5-question Love Test with the Quiz Master first.'
-            : 'Secret Room is locked! Open the glowing Reward Box nearby and collect your Golden Key.',
-        });
-        setTimeout(() => {
-          if (get().secretHintBanner?.startsWith('Secret Room is locked!')) {
-            set({ secretHintBanner: null });
-          }
-        }, 4500);
-        return;
-      }
-
-      // Key is collected! Play Golden Key unlocking animation, persist unlock, open door, then walk in naturally
-      if (s.secretKeyUnlockAnimActive) return;
-      set({
-        secretKeyUnlockAnimActive: true,
-        isSecretDoorOpen: false,
-        scriptedWalk: null,
-        secretHintBanner: 'Unlocking Our Secret Room with your Golden Key...',
-      });
-      setTimeout(() => {
-        set((cur) => ({
-          secretKeyUnlockAnimActive: false,
-          isSecretDoorOpen: true,
-          isSitting: false,
-          isDancing: false,
-          sittingBenchPosition: null,
-          activeCoupleSequence: 'none',
-          secretHintBanner: 'Our Secret Room Unlocked ❤️',
-          secretProgress: {
-            ...cur.secretProgress,
-            secretDoorUnlocked: true,
-            updatedAt: Date.now(),
-          },
-          scriptedWalk: {
-            target: SECRET_ARRIVAL_POS,
-            facing: Math.PI / 2,
-          },
-        }));
-        void postSecretProgress({ secretDoorUnlocked: true })
-          .then((prog) => set({ secretProgress: prog }))
-          .catch(() => {});
-        setTimeout(() => {
-          if (get().secretHintBanner === 'Our Secret Room Unlocked ❤️') {
-            set({ secretHintBanner: null });
-          }
-        }, 3600);
-      }, 1350);
-      return;
-    }
-
     set({
       isSecretDoorOpen: true,
       isSitting: false,
       isDancing: false,
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
+      secretHintBanner: !s.secretProgress.quizCompleted
+        ? 'Welcome to the Pre-Secret Room — approach the Quiz Master to begin the Love Test.'
+        : null,
+      secretProgress: s.secretProgress.secretDoorUnlocked
+        ? s.secretProgress
+        : {
+            ...s.secretProgress,
+            secretDoorUnlocked: true,
+            updatedAt: Date.now(),
+          },
       scriptedWalk: {
         target: SECRET_ARRIVAL_POS,
+        waypoints: [
+          [SECRET_DOOR_POS[0] + 1.4, 0, SECRET_DOOR_POS[2]],
+          SECRET_ARRIVAL_POS,
+        ],
+        waypointIndex: 0,
         facing: Math.PI / 2,
       },
     });
+    if (!s.secretProgress.secretDoorUnlocked) {
+      void postSecretProgress({ secretDoorUnlocked: true })
+        .then((prog) => set({ secretProgress: prog }))
+        .catch(() => {});
+    }
+    if (!s.secretProgress.quizCompleted) {
+      setTimeout(() => {
+        if (get().secretHintBanner?.startsWith('Welcome to the Pre-Secret Room')) {
+          set({ secretHintBanner: null });
+        }
+      }, 4200);
+    }
   },
 
   exitSecretRoom: () =>
@@ -887,8 +972,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       sittingBenchPosition: null,
       showSecretLetterModal: false,
       showLoveQuizModal: false,
+      showPasswordModal: false,
+      showKeyRewardPrompt: false,
       scriptedWalk: {
         target: SECRET_RETURN_POS,
+        waypoints: [
+          [SECRET_DOOR_POS[0] - 1.4, 0, SECRET_DOOR_POS[2]],
+          SECRET_RETURN_POS,
+        ],
+        waypointIndex: 0,
         facing: -Math.PI / 2,
       },
     }),
@@ -900,7 +992,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       showDoYouLoveMeModal: false,
       showLoveQuizModal: !s.secretProgress.quizCompleted,
       loveQuizSkipIntro: false,
-      isSecretDoorOpen: false,
       secretProgress: {
         ...s.secretProgress,
         yesConfirmed: true,
@@ -918,11 +1009,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   completeLoveQuiz: () => {
     set((s) => ({
       showLoveQuizModal: false,
-      showKeyRewardPrompt: !s.secretProgress.keyCollected,
-      isSecretDoorOpen: false,
+      showKeyRewardPrompt: true,
       secretHintBanner: !s.secretProgress.keyCollected
-        ? 'The Reward Box opened! Collect the Golden Key before unlocking the Secret Room.'
-        : null,
+        ? 'The Reward Box opened! Collect the Golden Key and view the Secret Letter.'
+        : 'Quiz completed! Open the Reward Box or read the Secret Letter.',
       secretProgress: {
         ...s.secretProgress,
         quizCompleted: true,
@@ -936,10 +1026,9 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   collectGoldenKey: () => {
     set((s) => ({
-      showKeyRewardPrompt: false,
-      isSecretDoorOpen: false,
+      showKeyRewardPrompt: true,
       secretHintBanner:
-        'Golden Key collected! Approach the Secret Room entrance and select UNLOCK SECRET ROOM.',
+        'Golden Key collected! View the Secret Letter or enter the password at the inner Secret Room door.',
       secretProgress: {
         ...s.secretProgress,
         quizCompleted: true,
@@ -959,52 +1048,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   unlockOrEnterPrivateChamber: () => {
     const s = get();
-    if (!s.secretProgress.keyCollected) {
-      set({
-        secretHintBanner:
-          'This door is sealed. Answer the 5-question Love Test with the Quiz Master and collect the golden key from the chest first!',
-      });
-      setTimeout(() => {
-        if (get().secretHintBanner?.startsWith('This door is sealed.')) {
-          set({ secretHintBanner: null });
-        }
-      }, 4500);
-      return;
-    }
-
     if (!s.secretProgress.secondDoorUnlocked) {
-      if (s.keyUnlockAnimActive) return;
-      set({
-        keyUnlockAnimActive: true,
-        secretHintBanner: 'Unlocking the hidden chamber with your Golden Key...',
-      });
-      setTimeout(() => {
-        set((cur) => ({
-          keyUnlockAnimActive: false,
-          isPrivateDoorOpen: true,
-          isSitting: false,
-          sittingBenchPosition: null,
-          secretHintBanner: 'Welcome to Our Private Memories ❤️',
-          secretProgress: {
-            ...cur.secretProgress,
-            secondDoorUnlocked: true,
-            chamberDiscovered: true,
-            updatedAt: Date.now(),
-          },
-          scriptedWalk: {
-            target: PRIVATE_CHAMBER_ARRIVAL_POS,
-            facing: Math.PI / 2,
-          },
-        }));
-        void postSecretProgress({ secondDoorUnlocked: true, chamberDiscovered: true })
-          .then((prog) => set({ secretProgress: prog }))
-          .catch(() => {});
-        setTimeout(() => {
-          if (get().secretHintBanner === 'Welcome to Our Private Memories ❤️') {
-            set({ secretHintBanner: null });
-          }
-        }, 3800);
-      }, 1400);
+      set({ showPasswordModal: true });
       return;
     }
 
@@ -1014,6 +1059,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       sittingBenchPosition: null,
       scriptedWalk: {
         target: PRIVATE_CHAMBER_ARRIVAL_POS,
+        waypoints: [
+          [PRIVATE_DOOR_POS[0] + 1.4, 0, PRIVATE_DOOR_POS[2]],
+          PRIVATE_CHAMBER_ARRIVAL_POS,
+        ],
+        waypointIndex: 0,
         facing: Math.PI / 2,
       },
     });
@@ -1028,6 +1078,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       activePrivateMemory: null,
       scriptedWalk: {
         target: PRIVATE_CHAMBER_RETURN_POS,
+        waypoints: [
+          [PRIVATE_DOOR_POS[0] - 1.4, 0, PRIVATE_DOOR_POS[2]],
+          PRIVATE_CHAMBER_RETURN_POS,
+        ],
+        waypointIndex: 0,
         facing: -Math.PI / 2,
       },
     }),
@@ -1042,6 +1097,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       activePrivateMemory: null,
       scriptedWalk: {
         target: SECRET_RETURN_POS,
+        waypoints: [
+          [PRIVATE_DOOR_POS[0] - 1.4, 0, PRIVATE_DOOR_POS[2]],
+          PRIVATE_CHAMBER_RETURN_POS,
+          [SECRET_DOOR_POS[0] - 1.4, 0, SECRET_DOOR_POS[2]],
+          SECRET_RETURN_POS,
+        ],
+        waypointIndex: 0,
         facing: -Math.PI / 2,
       },
     }),
@@ -1066,7 +1128,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   setSecretHintBanner: (msg) => set({ secretHintBanner: msg }),
 
-  setShowSecretLetterModal: (show) => set({ showSecretLetterModal: show }),
+  setShowSecretLetterModal: (show) =>
+    set((s) => ({
+      showSecretLetterModal: show,
+      showKeyRewardPrompt: show ? false : s.showKeyRewardPrompt,
+    })),
   setSecretLetterIndex: (index) => set({ secretLetterIndex: Math.max(0, index) }),
 
   enterWeddingHall: () => {
@@ -1074,6 +1140,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isWeddingDoorOpen: true,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
       weddingPhotoFlash: false,
@@ -1081,6 +1148,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       weddingBannerMessage: 'Welcome to Our Wedding Day — Press Start Wedding to begin',
       scriptedWalk: {
         target: WEDDING_ARRIVAL_POS,
+        waypoints: [
+          [-10.4, 0, -31.9],
+          [-14.8, 0, -36.0],
+          WEDDING_ARRIVAL_POS,
+        ],
+        waypointIndex: 0,
         facing: Math.PI,
       },
     });
@@ -1091,6 +1164,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isWeddingDoorOpen: true,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
       weddingPhotoFlash: false,
@@ -1098,6 +1172,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       weddingBannerMessage: null,
       scriptedWalk: {
         target: WEDDING_RETURN_POS,
+        waypoints: [
+          [-15.2, 0, -36.2],
+          [-12.0, 0, -33.5],
+          WEDDING_RETURN_POS,
+        ],
+        waypointIndex: 0,
         facing: 0.68,
       },
     }),
@@ -1108,6 +1188,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isWalkingTogether: true,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
       weddingPhotoFlash: false,
@@ -1126,6 +1207,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isWalkingTogether: true,
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       activeCoupleSequence: 'none',
       weddingPhotoFlash: false,
@@ -1142,6 +1224,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       scriptedWalk: null,
       activeCoupleSequence: 'none',
@@ -1155,6 +1238,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       scriptedWalk: null,
       activeCoupleSequence: 'none',
@@ -1169,6 +1253,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({
       isSitting: false,
       isDancing: false,
+      cakeCuttingStage: 'idle',
       sittingBenchPosition: null,
       scriptedWalk: null,
       activeCoupleSequence: 'none',
@@ -1193,6 +1278,56 @@ export const useGameStore = create<GameState>((set, get) => ({
   setWeddingPhase: (phase) => {
     if (Math.abs(get().weddingPhase - phase) > 0.01) set({ weddingPhase: phase });
   },
+
+  startCakeCutting: () => {
+    const s = get();
+    if (s.currentRoom !== 'wedding' || isProposalBusy(s.proposalStage)) return;
+    set({
+      isSitting: false,
+      isDancing: false,
+      isHoldingHands: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+      weddingPhotoFlash: false,
+      weddingStage:
+        s.weddingStage === 'idle' ? 'ready' : s.weddingStage === 'vows' || s.weddingStage === 'hug' || s.weddingStage === 'celebrating' || s.weddingStage === 'aisle_walk' ? 'ready' : s.weddingStage,
+      cakeCuttingStage: 'approaching',
+      cakeHasBeenCut: false,
+      weddingBannerMessage: 'Walking together to the wedding cake pavilion...',
+      characterAction: 'walk',
+      companionAction: 'walk',
+    });
+  },
+
+  setCakeCuttingStage: (stage) => {
+    const banners: Record<CakeCuttingStage, string | null> = {
+      idle: null,
+      approaching: 'Walking together to the wedding cake pavilion...',
+      cutting: 'Cutting our wedding cake hand in hand ♡',
+      feeding_a_to_b: 'Sharing the very first sweet bite with my love ♡',
+      feeding_b_to_a: 'Feeding each other a sweet piece of forever ♡',
+      celebrating: 'Sweetest beginning — cheers to forever together!',
+    };
+    set((s) => ({
+      cakeCuttingStage: stage,
+      cakeHasBeenCut:
+        stage === 'feeding_a_to_b' ||
+        stage === 'feeding_b_to_a' ||
+        stage === 'celebrating' ||
+        s.cakeHasBeenCut,
+      weddingBannerMessage: banners[stage],
+    }));
+  },
+
+  finishCakeCutting: () =>
+    set({
+      cakeCuttingStage: 'idle',
+      isMoving: false,
+      characterAction: 'idle',
+      companionAction: 'idle',
+      weddingBannerMessage: 'Wedding cake shared — celebrate and explore together ♡',
+    }),
 
   setVideoUrl: (url) => set({ videoUrl: url }),
   setCinemaPlaying: (playing) => set({ cinemaPlaying: playing }),
@@ -1222,6 +1357,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         currentRoom: room,
         visitedRooms: new Set([...state.visitedRooms, room]),
         weddingPhotoFlash: leavingWedding ? false : state.weddingPhotoFlash,
+        cakeCuttingStage: leavingWedding ? 'idle' : state.cakeCuttingStage,
         weddingStage: leavingWedding
           ? 'idle'
           : enteringWedding
@@ -1308,7 +1444,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleMusic: () => set((state) => ({ isMusicPlaying: !state.isMusicPlaying })),
   toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
   setShowControls: (show) => set({ showControls: show }),
-  setIsMobile: (mobile) => set({ isMobile: mobile }),
+  setShowOutfitCustomizer: (show) => set({ showOutfitCustomizer: show }),
+  setShowPasswordModal: (show) => set({ showPasswordModal: show }),
+  setIsMobile: (mobile) => {
+    if (get().isMobile !== mobile) set({ isMobile: mobile });
+  },
+  setIsPortrait: (portrait) => {
+    if (get().isPortrait !== portrait) set({ isPortrait: portrait });
+  },
   setJoystickInput: (input) => set({ joystickInput: input }),
   setCharacterAction: (action) => {
     if (get().characterAction !== action) set({ characterAction: action });
@@ -1316,6 +1459,119 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCompanionAction: (action) => {
     if (get().companionAction !== action) set({ companionAction: action });
   },
+
+  // Gender & Bouquet actions
+  setPlayerGender: (gender) =>
+    set({
+      playerGender: gender,
+      hasAnsweredGenderPrompt: true,
+      showGenderModal: false,
+    }),
+  setShowGenderModal: (show) => set({ showGenderModal: show }),
+  openBouquetCreator: () => {
+    const s = get();
+    if (isBouquetHandoverBusy(s.bouquetHandoverStage) || isProposalBusy(s.proposalStage)) return;
+    set({
+      showBouquetCreator: true,
+      isMoving: false,
+      isRunning: false,
+    });
+  },
+  closeBouquetCreator: () => set({ showBouquetCreator: false }),
+  saveCreatedBouquet: (design) => {
+    set({
+      createdBouquet: design,
+      showBouquetCreator: false,
+      heldBouquetBy: null,
+      showBouquetNoteBanner: false,
+      secretHintBanner: 'Your custom bouquet is ready — press Give Bouquet when you want to gift it.',
+    });
+    setTimeout(() => {
+      if (get().secretHintBanner?.startsWith('Your custom bouquet is ready')) {
+        set({ secretHintBanner: null });
+      }
+    }, 4200);
+  },
+  startGiveBouquet: () => {
+    const s = get();
+    if (
+      !s.createdBouquet ||
+      isBouquetHandoverBusy(s.bouquetHandoverStage) ||
+      isProposalBusy(s.proposalStage) ||
+      s.isSitting ||
+      s.isDancing ||
+      s.cakeCuttingStage !== 'idle' ||
+      s.showBouquetCreator ||
+      s.showGenderModal ||
+      s.showProposalModal ||
+      s.showPasswordModal
+    ) {
+      return;
+    }
+    const giver: PlayerGender = s.playerGender ?? 'girl';
+    const anchor = computeBouquetHandoverAnchor(
+      { x: s.playerPosition.x, z: s.playerPosition.z },
+      s.playerRotation,
+      { x: s.partnerPosition.x, z: s.partnerPosition.z },
+      giver
+    );
+    set({
+      bouquetHandoverStage: 'approaching',
+      bouquetHandoverAnchor: anchor,
+      heldBouquetBy: giver,
+      showBouquetNoteBanner: false,
+      isHoldingHands: false,
+      isSitting: false,
+      isDancing: false,
+      sittingBenchPosition: null,
+      scriptedWalk: null,
+      activeCoupleSequence: 'none',
+    });
+  },
+  setBouquetHandoverStage: (stage) => {
+    const s = get();
+    const anchor = s.bouquetHandoverAnchor;
+    if (!anchor) return;
+    if (stage === 'offering') {
+      set({
+        bouquetHandoverStage: 'offering',
+        heldBouquetBy: anchor.giver,
+      });
+    } else if (stage === 'receiving') {
+      set({
+        bouquetHandoverStage: 'receiving',
+        heldBouquetBy: anchor.receiver,
+      });
+    } else if (stage === 'reaction') {
+      set({
+        bouquetHandoverStage: 'reaction',
+        heldBouquetBy: anchor.receiver,
+        showBouquetNoteBanner: hasBouquetLetter(s.createdBouquet),
+      });
+    } else {
+      set({ bouquetHandoverStage: stage });
+    }
+  },
+  finishGiveBouquet: () => {
+    const s = get();
+    const receiver = s.bouquetHandoverAnchor?.receiver ?? s.heldBouquetBy;
+    set({
+      bouquetHandoverStage: 'idle',
+      bouquetHandoverAnchor: null,
+      heldBouquetBy: receiver ?? s.heldBouquetBy,
+      isMoving: false,
+      characterAction: 'idle',
+      companionAction: 'idle',
+    });
+    if (s.showBouquetNoteBanner) {
+      setTimeout(() => {
+        if (get().bouquetHandoverStage === 'idle') {
+          set({ showBouquetNoteBanner: false });
+        }
+      }, 6500);
+    }
+  },
+  dismissBouquetNote: () => set({ showBouquetNoteBanner: false }),
 
   // Admin actions
   setShowAdminLogin: (show) => set({ showAdminLogin: show }),

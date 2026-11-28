@@ -51,7 +51,7 @@ export default function SecretLetterModal() {
               textTransform: 'uppercase',
             }}
           >
-            Our Secret Room · Letter {safeIndex + 1} of {total}
+            Pre-Secret Room · Reward Letter {safeIndex + 1} of {total}
           </span>
           <button
             type="button"

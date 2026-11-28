@@ -19,6 +19,12 @@ import {
   getWeddingCeremonyPose,
 } from '../utils/museumLayout';
 import { isProposalBusy } from '../utils/proposal';
+import { advanceCakeCuttingStage, getCakeCuttingPose } from '../utils/weddingCake';
+import {
+  advanceBouquetHandoverStage,
+  getActiveBouquetReaction,
+  getBouquetHandoverActions,
+} from '../utils/bouquet';
 
 function wrapAngle(angle: number): number {
   let a = angle;
@@ -35,6 +41,10 @@ export default function CharacterController() {
   const coupleSeqTimer = useRef(0);
   const proposalTimer = useRef(0);
   const lastProposalStage = useRef('idle');
+  const cakeTimerRef = useRef(0);
+  const lastCakeStageRef = useRef('idle');
+  const bouquetTimerRef = useRef(0);
+  const lastBouquetStageRef = useRef('idle');
   const dancePhaseRef = useRef(0);
   const wasSitting = useRef(false);
   const lastBenchPos = useRef<[number, number, number] | null>(null);
@@ -51,7 +61,12 @@ export default function CharacterController() {
   const currentRoom = useGameStore((s) => s.currentRoom);
   const groomOutfit = useGameStore((s) => s.groomOutfit);
   const weddingStage = useGameStore((s) => s.weddingStage);
+  const cakeCuttingStage = useGameStore((s) => s.cakeCuttingStage);
   const proposalStage = useGameStore((s) => s.proposalStage);
+  const createdBouquet = useGameStore((s) => s.createdBouquet);
+  const heldBouquetBy = useGameStore((s) => s.heldBouquetBy);
+  const bouquetHandoverStage = useGameStore((s) => s.bouquetHandoverStage);
+  const bouquetHandoverAnchor = useGameStore((s) => s.bouquetHandoverAnchor);
   const isWalkingToSeat = useGameStore(
     (s) =>
       s.scriptedWalk?.onArrive === 'sit_cinema' ||
@@ -97,6 +112,14 @@ export default function CharacterController() {
     const room = detectMuseumRoom(pos.x, pos.z);
     if (room !== state.currentRoom) {
       state.setCurrentRoom(room);
+    }
+
+    // Pause gameplay movement while mobile portrait orientation prompt is active
+    if (state.isMobile && state.isPortrait) {
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      state.setIsMoving(false);
+      state.setIsRunning(false);
+      return;
     }
 
     // Handle active Proposal sequence (approaching -> kneeling -> awaiting_answer -> accepted_standing -> embracing -> celebrating)
@@ -165,6 +188,63 @@ export default function CharacterController() {
       proposalTimer.current = 0;
     }
 
+    // Handle active Bouquet Handover sequence (approaching -> offering -> receiving -> reaction)
+    if (state.bouquetHandoverStage !== 'idle' && state.bouquetHandoverAnchor) {
+      const seqDelta = Math.min(rawDelta, 0.5);
+      if (state.bouquetHandoverStage !== lastBouquetStageRef.current) {
+        lastBouquetStageRef.current = state.bouquetHandoverStage;
+        bouquetTimerRef.current = 0;
+      }
+      bouquetTimerRef.current += seqDelta;
+
+      const anchor = state.bouquetHandoverAnchor;
+      const boyAlpha = 1 - Math.exp(-9 * seqDelta);
+      const nx = THREE.MathUtils.lerp(pos.x, anchor.boyPos[0], boyAlpha);
+      const ny = THREE.MathUtils.lerp(pos.y, 0, 1 - Math.exp(-12 * seqDelta));
+      const nz = THREE.MathUtils.lerp(pos.z, anchor.boyPos[2], boyAlpha);
+
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      rb.setTranslation({ x: nx, y: ny, z: nz }, true);
+
+      targetRotation.current = anchor.boyFacing;
+      state.setPlayerRotation(anchor.boyFacing);
+      if (characterRef.current) {
+        const diff = wrapAngle(targetRotation.current - characterRef.current.rotation.y);
+        characterRef.current.rotation.y += diff * Math.min(1, seqDelta * 12);
+      }
+
+      const boyDist = Math.hypot(anchor.boyPos[0] - pos.x, anchor.boyPos[2] - pos.z);
+      const girlDist = Math.hypot(
+        anchor.girlPos[0] - state.partnerPosition.x,
+        anchor.girlPos[2] - state.partnerPosition.z
+      );
+      const giverDist = anchor.giver === 'boy' ? boyDist : girlDist;
+      const actions = getBouquetHandoverActions(state.bouquetHandoverStage, anchor.giver, giverDist);
+      state.setIsMoving(
+        anchor.giver === 'boy' && state.bouquetHandoverStage === 'approaching' && giverDist > 0.16
+      );
+      state.setCharacterAction(actions.boyAction);
+
+      const nextStage = advanceBouquetHandoverStage(
+        state.bouquetHandoverStage,
+        bouquetTimerRef.current,
+        giverDist
+      );
+      if (nextStage === 'done') {
+        bouquetTimerRef.current = 0;
+        lastBouquetStageRef.current = 'idle';
+        state.finishGiveBouquet();
+      } else if (nextStage !== state.bouquetHandoverStage) {
+        bouquetTimerRef.current = 0;
+        lastBouquetStageRef.current = nextStage;
+        state.setBouquetHandoverStage(nextStage);
+      }
+      return;
+    } else {
+      lastBouquetStageRef.current = 'idle';
+      bouquetTimerRef.current = 0;
+    }
+
     // Handle active couple sequence (hug / kiss)
     if (state.activeCoupleSequence === 'hug' || state.activeCoupleSequence === 'kiss') {
       coupleSeqTimer.current += delta;
@@ -192,10 +272,16 @@ export default function CharacterController() {
 
     // Handle scripted smooth walk (opening museum door, entering theatre/garden, walking to seat or dance spot)
     if (state.scriptedWalk) {
-      const { target, facing, onArrive, benchPos, benchRot } = state.scriptedWalk;
-      let destX = target[0];
-      let destZ = target[2];
+      const { target, waypoints, waypointIndex = 0, facing, onArrive, benchPos, benchRot } = state.scriptedWalk;
+      const hasWaypoints = Array.isArray(waypoints) && waypoints.length > 0;
+      const activeIdx = hasWaypoints ? Math.min(waypointIndex, waypoints.length - 1) : 0;
+      const isIntermediateWaypoint = hasWaypoints && activeIdx < waypoints.length - 1;
+      const activePoint = hasWaypoints ? waypoints[activeIdx] : target;
+
+      let destX = activePoint[0];
+      let destZ = activePoint[2];
       const arrivingToSit =
+        !isIntermediateWaypoint &&
         (onArrive === 'sit_cinema' ||
           onArrive === 'sit_garden' ||
           onArrive === 'sit_secret' ||
@@ -206,17 +292,17 @@ export default function CharacterController() {
         const aligned = computeSeatAlignment(benchPos, rot);
         destX = aligned.player[0];
         destZ = aligned.player[2];
-      } else if (onArrive === 'dance_together') {
+      } else if (!isIntermediateWaypoint && onArrive === 'dance_together') {
         const dancePose = getDanceCouplePositions(DANCE_SPOT_POS[0], DANCE_SPOT_POS[2], dancePhaseRef.current);
         destX = dancePose.player[0];
         destZ = dancePose.player[2];
-      } else if (onArrive === 'wedding_aisle') {
+      } else if (!isIntermediateWaypoint && onArrive === 'wedding_aisle') {
         const aislePose = getWeddingCeremonyPose('aisle_walk');
         destX = aislePose.player[0];
         destZ = aislePose.player[2];
       }
 
-      const key = `${destX.toFixed(2)},${destZ.toFixed(2)},${onArrive ?? ''}`;
+      const key = `${destX.toFixed(2)},${destZ.toFixed(2)},${activeIdx},${onArrive ?? ''}`;
       if (key !== lastScriptedKey.current) {
         lastScriptedKey.current = key;
         scriptedWalkElapsed.current = 0;
@@ -229,11 +315,15 @@ export default function CharacterController() {
       const dist = Math.hypot(dx, dz);
       const crossedTarget = lastScriptedDist.current < 1.1 && dist > lastScriptedDist.current + 0.04;
       const timedOut = scriptedWalkElapsed.current > 10.0;
+      const arrivalThreshold = isIntermediateWaypoint ? 0.38 : arrivingToSit ? 0.36 : 0.28;
 
-      if (dist > (arrivingToSit ? 0.36 : 0.28) && !crossedTarget && !timedOut) {
+      if (dist > arrivalThreshold && !crossedTarget && !timedOut) {
         lastScriptedDist.current = dist;
         const maxWalkSpeed = onArrive === 'wedding_aisle' ? 2.6 : 4.8;
-        const walkSpeed = dist < 1.6 ? Math.min(maxWalkSpeed, Math.max(1.05, dist * 2.5)) : maxWalkSpeed;
+        const walkSpeed =
+          !isIntermediateWaypoint && dist < 1.6
+            ? Math.min(maxWalkSpeed, Math.max(1.05, dist * 2.5))
+            : maxWalkSpeed;
         const vx = (dx / dist) * walkSpeed;
         const vz = (dz / dist) * walkSpeed;
         rb.setLinvel({ x: vx, y: rb.linvel().y, z: vz }, true);
@@ -241,6 +331,18 @@ export default function CharacterController() {
         state.setPlayerRotation(targetRotation.current);
         state.setIsMoving(true);
         state.setCharacterAction(state.isHoldingHands ? 'hold_hands_walk' : 'walk');
+      } else if (isIntermediateWaypoint) {
+        scriptedWalkElapsed.current = 0;
+        lastScriptedDist.current = Infinity;
+        lastScriptedKey.current = '';
+        rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        rb.setTranslation({ x: destX, y: 0, z: destZ }, true);
+        useGameStore.setState({
+          scriptedWalk: {
+            ...state.scriptedWalk,
+            waypointIndex: activeIdx + 1,
+          },
+        });
       } else {
         scriptedWalkElapsed.current = 0;
         lastScriptedDist.current = Infinity;
@@ -284,6 +386,74 @@ export default function CharacterController() {
     }
 
     const input = getInput();
+
+    // Separate Wedding Cake Cutting & Mutual Feeding sequence — exits cleanly on WASD/Jump
+    if (state.currentRoom === 'wedding' && state.cakeCuttingStage !== 'idle') {
+      if (input.forward || input.backward || input.left || input.right || input.jump) {
+        cakeTimerRef.current = 0;
+        lastCakeStageRef.current = 'idle';
+        state.finishCakeCutting();
+      } else {
+        if (state.cakeCuttingStage !== lastCakeStageRef.current) {
+          lastCakeStageRef.current = state.cakeCuttingStage;
+          cakeTimerRef.current = 0;
+        }
+        cakeTimerRef.current += delta;
+
+        const pose = getCakeCuttingPose(state.cakeCuttingStage);
+        const dx = pose.player[0] - pos.x;
+        const dz = pose.player[2] - pos.z;
+        const dist = Math.hypot(dx, dz);
+
+        if (state.cakeCuttingStage === 'approaching' && dist > 0.16) {
+          const approachSpeed = Math.min(6.4, Math.max(1.5, dist * 3.5));
+          const vx = (dx / dist) * approachSpeed;
+          const vz = (dz / dist) * approachSpeed;
+          rb.setLinvel({ x: vx, y: 0, z: vz }, true);
+          targetRotation.current = Math.atan2(dx, dz);
+          state.setPlayerRotation(targetRotation.current);
+          state.setIsMoving(true);
+          state.setCharacterAction('walk');
+        } else {
+          const cakeLerp = 1 - Math.exp(-12 * delta);
+          const nx = THREE.MathUtils.lerp(pos.x, pose.player[0], cakeLerp);
+          const nz = THREE.MathUtils.lerp(pos.z, pose.player[2], cakeLerp);
+          rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+          rb.setTranslation({ x: nx, y: 0, z: nz }, true);
+          targetRotation.current = pose.playerFacing;
+          state.setPlayerRotation(pose.playerFacing);
+          state.setIsMoving(false);
+          state.setCharacterAction(pose.playerAction);
+        }
+
+        if (characterRef.current) {
+          const diff = wrapAngle(targetRotation.current - characterRef.current.rotation.y);
+          characterRef.current.rotation.y += diff * Math.min(1, delta * 12);
+        }
+
+        const nextStage = advanceCakeCuttingStage(state.cakeCuttingStage, cakeTimerRef.current, dist);
+        if (nextStage === 'done') {
+          cakeTimerRef.current = 0;
+          lastCakeStageRef.current = 'idle';
+          state.finishCakeCutting();
+        } else if (nextStage !== state.cakeCuttingStage) {
+          cakeTimerRef.current = 0;
+          lastCakeStageRef.current = nextStage;
+          if (nextStage === 'cutting') {
+            const cutPose = getCakeCuttingPose('cutting');
+            rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+            rb.setTranslation({ x: cutPose.player[0], y: 0, z: cutPose.player[2] }, true);
+            targetRotation.current = cutPose.playerFacing;
+            if (characterRef.current) characterRef.current.rotation.y = cutPose.playerFacing;
+          }
+          state.setCakeCuttingStage(nextStage);
+        }
+        return;
+      }
+    } else {
+      cakeTimerRef.current = 0;
+      lastCakeStageRef.current = 'idle';
+    }
 
     // Wedding Ceremony active altar stages (vows, hug, celebrating) — exits cleanly if user presses WASD
     if (
@@ -451,7 +621,9 @@ export default function CharacterController() {
           isProposalBusy(proposalStage) ||
           weddingStage === 'vows' ||
           weddingStage === 'hug' ||
-          weddingStage === 'celebrating'
+          weddingStage === 'celebrating' ||
+          cakeCuttingStage !== 'idle' ||
+          bouquetHandoverStage !== 'idle'
         }
       />
       <group ref={characterRef} rotation={[0, Math.PI, 0]}>
@@ -461,6 +633,12 @@ export default function CharacterController() {
           isHoldingHands={isHoldingHands}
           weddingMode={currentRoom === 'wedding'}
           groomOutfit={groomOutfit}
+          heldBouquet={heldBouquetBy === 'boy' ? createdBouquet : null}
+          bouquetReaction={
+            bouquetHandoverAnchor?.receiver === 'boy'
+              ? getActiveBouquetReaction(bouquetHandoverStage, 'boy')
+              : 'none'
+          }
         />
       </group>
     </RigidBody>

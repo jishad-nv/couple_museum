@@ -33,8 +33,14 @@ export function useInput() {
   const showLoveQuizModal = useGameStore((s) => s.showLoveQuizModal);
   const showPrivateMemoryModal = useGameStore((s) => s.showPrivateMemoryModal);
   const showSecretLetterModal = useGameStore((s) => s.showSecretLetterModal);
+  const showPasswordModal = useGameStore((s) => s.showPasswordModal);
   const showAdminLogin = useGameStore((s) => s.showAdminLogin);
   const showAdminPanel = useGameStore((s) => s.showAdminPanel);
+  const showGenderModal = useGameStore((s) => s.showGenderModal);
+  const showBouquetCreator = useGameStore((s) => s.showBouquetCreator);
+  const hasAnsweredGenderPrompt = useGameStore(
+    (s) => s.hasAnsweredGenderPrompt
+  );
   const isAnyModalOpen =
     showGuestbookModal ||
     showPhotoViewer ||
@@ -45,8 +51,12 @@ export function useInput() {
     showLoveQuizModal ||
     showPrivateMemoryModal ||
     showSecretLetterModal ||
+    showPasswordModal ||
     showAdminLogin ||
-    showAdminPanel;
+    showAdminPanel ||
+    showGenderModal ||
+    showBouquetCreator ||
+    !hasAnsweredGenderPrompt;
 
   const clearInputs = useCallback(() => {
     inputRef.current.forward = false;
@@ -82,8 +92,12 @@ export function useInput() {
       s.showLoveQuizModal ||
       s.showPrivateMemoryModal ||
       s.showSecretLetterModal ||
+      s.showPasswordModal ||
       s.showAdminLogin ||
       s.showAdminPanel ||
+      s.showGenderModal ||
+      s.showBouquetCreator ||
+      !s.hasAnsweredGenderPrompt ||
       isTypingInForm(e.target)
     ) {
       return;
@@ -185,8 +199,12 @@ export function useInput() {
       s.showLoveQuizModal ||
       s.showPrivateMemoryModal ||
       s.showSecretLetterModal ||
+      s.showPasswordModal ||
       s.showAdminLogin ||
-      s.showAdminPanel
+      s.showAdminPanel ||
+      s.showGenderModal ||
+      s.showBouquetCreator ||
+      !s.hasAnsweredGenderPrompt
     ) {
       return {
         forward: false,

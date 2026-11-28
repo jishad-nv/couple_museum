@@ -2,17 +2,15 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-const SKY_CENTER: [number, number, number] = [12, 0, -15];
+const SKY_CENTER: [number, number, number] = [-4, 0, -25];
 const MOON_DIRECTION = new THREE.Vector3(0.28, 0.25, -0.92).normalize();
-const SUN_DIRECTION = new THREE.Vector3(-0.36, 0.42, -0.83).normalize();
+const SUN_DIRECTION = new THREE.Vector3(-0.36, 0.38, -0.85).normalize();
 
 export default function NightSky() {
   const skyMatRef = useRef<THREE.ShaderMaterial>(null);
   const starMatRef = useRef<THREE.ShaderMaterial>(null);
   const moonMeshRef = useRef<THREE.Mesh>(null);
   const moonGlowRef = useRef<THREE.Mesh>(null);
-  const sunMeshRef = useRef<THREE.Mesh>(null);
-  const sunGlowRef = useRef<THREE.Mesh>(null);
   const dayMixRef = useRef(0);
 
   const skyUniforms = useMemo(
@@ -93,10 +91,19 @@ export default function NightSky() {
     // Dynamically import store without circular dependency by reading window debug ref if available
     const storeApi = (
       window as unknown as {
-        __LOVE_MUSEUM_STORE__?: { getState: () => { currentRoom?: string } };
+        __LOVE_MUSEUM_STORE__?: {
+          getState: () => {
+            currentRoom?: string;
+            scriptedWalk?: { target?: [number, number, number] } | null;
+          };
+        };
       }
     ).__LOVE_MUSEUM_STORE__;
-    const isWedding = storeApi?.getState().currentRoom === 'wedding';
+    const st = storeApi?.getState();
+    const wt = st?.scriptedWalk?.target;
+    const isWedding =
+      st?.currentRoom === 'wedding' ||
+      (wt ? Math.abs(wt[0] - -26.5) < 0.1 && Math.abs(wt[2] - -38.8) < 0.1 : false);
     const targetDay = isWedding ? 1 : 0;
     dayMixRef.current = THREE.MathUtils.lerp(dayMixRef.current, targetDay, 1 - Math.exp(-2.8 * dt));
     const dayMix = dayMixRef.current;
@@ -117,30 +124,18 @@ export default function NightSky() {
       moonGlowRef.current.visible = dayMix < 0.92;
       (moonGlowRef.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.18 * (1 - dayMix));
     }
-    if (sunMeshRef.current) {
-      sunMeshRef.current.visible = dayMix > 0.05;
-      (sunMeshRef.current.material as THREE.MeshBasicMaterial).opacity = dayMix;
-    }
-    if (sunGlowRef.current) {
-      sunGlowRef.current.visible = dayMix > 0.05;
-      (sunGlowRef.current.material as THREE.MeshBasicMaterial).opacity = 0.28 * dayMix;
-    }
   });
 
   const moonWorldPos: [number, number, number] = useMemo(
     () => [MOON_DIRECTION.x * 130, MOON_DIRECTION.y * 130, MOON_DIRECTION.z * 130],
     []
   );
-  const sunWorldPos: [number, number, number] = useMemo(
-    () => [SUN_DIRECTION.x * 132, SUN_DIRECTION.y * 132, SUN_DIRECTION.z * 132],
-    []
-  );
 
   return (
     <group position={SKY_CENTER}>
-      {/* Full 360-degree Adaptive Sky Dome (Midnight Navy Night <-> Bright Morning Wedding Sky) */}
+      {/* Full 360-degree Adaptive Sky Dome (Midnight Navy Night <-> Soft Morning Wedding Sky) */}
       <mesh renderOrder={-10}>
-        <sphereGeometry args={[158, 40, 28]} />
+        <sphereGeometry args={[186, 40, 28]} />
         <shaderMaterial
           ref={skyMatRef}
           side={THREE.BackSide}
@@ -190,29 +185,39 @@ export default function NightSky() {
             }
 
             void main() {
-              float h = clamp(vDir.y, 0.0, 1.0);
+              float rawY = vDir.y;
+              float h = clamp(rawY, 0.0, 1.0);
 
               // Night gradient
+              vec3 nBelow   = vec3(0.028, 0.052, 0.115);
               vec3 nHorizon = vec3(0.055, 0.095, 0.21);
               vec3 nMid     = vec3(0.025, 0.055, 0.145);
               vec3 nZenith  = vec3(0.008, 0.018, 0.062);
               vec3 nightCol = mix(nHorizon, nMid, smoothstep(0.0, 0.30, h));
               nightCol = mix(nightCol, nZenith, smoothstep(0.28, 0.88, h));
+              if (rawY < 0.0) {
+                nightCol = mix(nHorizon, nBelow, smoothstep(0.0, -0.25, rawY));
+              }
 
               float moonAlign = max(dot(normalize(vDir), normalize(uMoonDir)), 0.0);
               nightCol += vec3(0.16, 0.23, 0.38) * pow(moonAlign, 8.0) * 0.65;
               nightCol += vec3(0.45, 0.55, 0.72) * pow(moonAlign, 48.0) * 0.55;
 
-              // Bright Morning Wedding Sky gradient
-              vec3 dHorizon = vec3(0.99, 0.90, 0.80);
-              vec3 dMid     = vec3(0.58, 0.82, 0.96);
-              vec3 dZenith  = vec3(0.27, 0.60, 0.87);
-              vec3 dayCol = mix(dHorizon, dMid, smoothstep(0.0, 0.32, h));
-              dayCol = mix(dayCol, dZenith, smoothstep(0.30, 0.90, h));
+              // Coherent Soft Morning Wedding Sky gradient matching misty hillside horizon (#dfeff6)
+              vec3 dBelow   = vec3(0.76, 0.85, 0.86);
+              vec3 dHorizon = vec3(0.87, 0.94, 0.97);
+              vec3 dMid     = vec3(0.55, 0.79, 0.94);
+              vec3 dZenith  = vec3(0.28, 0.59, 0.86);
+              vec3 dayCol = mix(dHorizon, dMid, smoothstep(0.0, 0.34, h));
+              dayCol = mix(dayCol, dZenith, smoothstep(0.32, 0.92, h));
 
               float sunAlign = max(dot(normalize(vDir), normalize(uSunDir)), 0.0);
-              dayCol += vec3(1.0, 0.90, 0.68) * pow(sunAlign, 8.0) * 0.32;
-              dayCol += vec3(1.0, 0.97, 0.88) * pow(sunAlign, 42.0) * 0.45;
+              dayCol += vec3(1.0, 0.91, 0.74) * pow(sunAlign, 7.0) * 0.24;
+              dayCol += vec3(1.0, 0.96, 0.86) * pow(sunAlign, 48.0) * 0.42;
+              dayCol += vec3(1.0, 0.99, 0.94) * smoothstep(0.9972, 0.9993, sunAlign) * 0.58;
+              if (rawY < 0.0) {
+                dayCol = mix(dHorizon, dBelow, smoothstep(0.0, -0.22, rawY));
+              }
 
               vec3 col = mix(nightCol, dayCol, uDayMix);
 
@@ -246,22 +251,6 @@ export default function NightSky() {
           color="#b8d0f8"
           transparent
           opacity={0.18}
-          depthWrite={false}
-          fog={false}
-        />
-      </mesh>
-
-      {/* Warm Morning Sun Sphere & Halo (visible during Wedding daytime) */}
-      <mesh ref={sunMeshRef} position={sunWorldPos} renderOrder={-8} visible={false}>
-        <sphereGeometry args={[4.2, 24, 24]} />
-        <meshBasicMaterial color="#fff8e3" transparent opacity={0} fog={false} />
-      </mesh>
-      <mesh ref={sunGlowRef} position={sunWorldPos} renderOrder={-9} visible={false}>
-        <sphereGeometry args={[8.5, 20, 20]} />
-        <meshBasicMaterial
-          color="#ffe09e"
-          transparent
-          opacity={0}
           depthWrite={false}
           fog={false}
         />

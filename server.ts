@@ -78,6 +78,7 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
   ensureUploadDirs(uploadDir);
 
   const loginLimiter = new LoginRateLimiter(5, 15 * 60 * 1000);
+  const secretPasswordLimiter = new LoginRateLimiter(10, 5 * 60 * 1000);
   const app = express();
 
   app.set('trust proxy', 1);
@@ -163,8 +164,6 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
       'quizCompleted',
       'keyCollected',
       'secretDoorUnlocked',
-      'secondDoorUnlocked',
-      'chamberDiscovered',
     ] as const) {
       if (typeof req.body?.[key] === 'boolean') {
         patch[key] = req.body[key];
@@ -172,6 +171,43 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
     }
     const secretProgress = db.updateSecretProgress(patch);
     res.json({ secretProgress });
+  });
+
+  app.post('/api/secret/verify-password', (req, res) => {
+    const ip = getClientIp(req);
+    const rateCheck = secretPasswordLimiter.check(ip);
+    if (!rateCheck.allowed) {
+      res.setHeader('Retry-After', String(rateCheck.retryAfterSeconds));
+      res.status(429).json({
+        error: `Too many incorrect attempts. Please try again in ${rateCheck.retryAfterSeconds}s.`,
+      });
+      return;
+    }
+
+    const storedHash = db.getSecretRoomPasswordHash();
+    if (!storedHash) {
+      res.status(403).json({
+        ok: false,
+        unlocked: false,
+        error: 'Secret Room password has not been set by the administrator yet.',
+      });
+      return;
+    }
+
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!password || !verifyPassword(password, storedHash)) {
+      secretPasswordLimiter.recordFailure(ip);
+      res.status(401).json({
+        ok: false,
+        unlocked: false,
+        error: 'Incorrect Secret Room password. Please try again.',
+      });
+      return;
+    }
+
+    secretPasswordLimiter.reset(ip);
+    const secretProgress = db.unlockSecondDoor();
+    res.json({ ok: true, unlocked: true, secretProgress });
   });
 
   app.get('/api/media/:category/:filename', (req, res) => {
@@ -700,6 +736,31 @@ export function createMuseumApp(options?: { dbPath?: string; uploadDir?: string 
   app.post('/api/admin/secret/reset-progress', requireAdmin, (_req, res) => {
     db.resetSecretProgress();
     res.json({ bundle: db.getFullBundle() });
+  });
+
+  app.post('/api/admin/secret-password', requireAdmin, (req: AuthenticatedRequest, res) => {
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const confirmPassword = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+
+    if (!password || password.length < 2 || password.length > 64) {
+      res.status(400).json({ error: 'Password must be between 2 and 64 characters.' });
+      return;
+    }
+    if (password !== confirmPassword) {
+      res.status(400).json({ error: 'Passwords do not match.' });
+      return;
+    }
+
+    const hash = hashPassword(password);
+    db.setSecretRoomPassword(hash);
+    secretPasswordLimiter.reset(getClientIp(req));
+    res.json({ ok: true, bundle: db.getFullBundle() });
+  });
+
+  app.delete('/api/admin/secret-password', requireAdmin, (req: AuthenticatedRequest, res) => {
+    db.clearSecretRoomPassword();
+    secretPasswordLimiter.reset(getClientIp(req));
+    res.json({ ok: true, bundle: db.getFullBundle() });
   });
 
   app.post('/api/admin/secret-quiz', requireAdmin, (req, res) => {

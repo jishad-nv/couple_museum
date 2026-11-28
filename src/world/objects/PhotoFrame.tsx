@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
+import { useRef, useCallback, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -15,6 +15,39 @@ interface PhotoFrameProps {
   ropeLength?: number;
 }
 
+const photoFrameRegistry = new Map<
+  string,
+  { memory: MemoryItem; x: number; y: number; z: number }
+>();
+
+function findNearestPhotoFrame(
+  playerPos: { x: number; y: number; z: number },
+  maxDistance: number
+): MemoryItem | null {
+  let closest: MemoryItem | null = null;
+  let closestDist = maxDistance;
+  for (const entry of photoFrameRegistry.values()) {
+    const dist = Math.hypot(
+      playerPos.x - entry.x,
+      playerPos.y - entry.y,
+      playerPos.z - entry.z
+    );
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = entry.memory;
+    }
+  }
+  return closest;
+}
+
+export function updateNearestPhotoFrame(playerPos: { x: number; y: number; z: number }): void {
+  const s = useGameStore.getState();
+  const nearest = findNearestPhotoFrame(playerPos, INTERACTION_DISTANCE);
+  if (nearest?.id !== s.nearbyMemory?.id) {
+    s.setNearbyMemory(nearest);
+  }
+}
+
 export default function PhotoFrame({
   position,
   rotation = [0, 0, 0],
@@ -26,43 +59,48 @@ export default function PhotoFrame({
   const groupRef = useRef<THREE.Group>(null);
   const swingRef = useRef<THREE.Group>(null);
   const worldPosRef = useRef(new THREE.Vector3());
-  const isNearRef = useRef(false);
-  const [isNear, setIsNear] = useState(false);
+  const posSyncedRef = useRef(false);
+  const isNear = useGameStore((s) => s.nearbyMemory?.id === memory.id);
 
   const openMemory = useGameStore((s) => s.openMemory);
-  const openAlbumFromMemory = useGameStore((s) => s.openAlbumFromMemory);
 
   const texture = useMemo(() => createMemoryCanvasTexture(memory), [memory]);
 
   useEffect(() => {
+    posSyncedRef.current = false;
+    photoFrameRegistry.set(memory.id, {
+      memory,
+      x: position[0],
+      y: position[1],
+      z: position[2],
+    });
     return () => {
-      texture.dispose();
+      photoFrameRegistry.delete(memory.id);
+      const s = useGameStore.getState();
+      if (s.nearbyMemory?.id === memory.id) {
+        s.setNearbyMemory(null);
+      }
     };
-  }, [texture]);
+  }, [memory, position]);
 
   useFrame((state) => {
     if (!groupRef.current) return;
 
     if (hanging && swingRef.current) {
-      // Ultra-gentle pendulum breeze from overhead branch pivot — smooth, zero jitter
       const t = state.clock.elapsedTime;
       swingRef.current.rotation.z = Math.sin(t * 0.75 + position[0] * 1.3) * 0.018;
       swingRef.current.rotation.x = Math.cos(t * 0.6 + position[2] * 1.1) * 0.012;
     }
 
-    groupRef.current.getWorldPosition(worldPosRef.current);
-    const s = useGameStore.getState();
-    const dist = worldPosRef.current.distanceTo(s.playerPosition);
-    const near = dist < INTERACTION_DISTANCE;
-
-    if (near !== isNearRef.current) {
-      isNearRef.current = near;
-      setIsNear(near);
-      if (near) {
-        s.setNearbyMemory(memory);
-      } else if (s.nearbyMemory?.id === memory.id) {
-        s.setNearbyMemory(null);
-      }
+    if (!posSyncedRef.current) {
+      groupRef.current.getWorldPosition(worldPosRef.current);
+      photoFrameRegistry.set(memory.id, {
+        memory,
+        x: worldPosRef.current.x,
+        y: worldPosRef.current.y,
+        z: worldPosRef.current.z,
+      });
+      posSyncedRef.current = true;
     }
   });
 
@@ -71,6 +109,7 @@ export default function PhotoFrame({
       if (e.repeat || e.code !== 'KeyE') return;
       const s = useGameStore.getState();
       if (
+        s.isSitting ||
         s.showPhotoViewer ||
         s.showGuestbookModal ||
         s.showVideoPlayer ||
@@ -82,29 +121,18 @@ export default function PhotoFrame({
         return;
       }
       if (s.nearbyMemory?.id === memory.id) {
-        if (s.currentRoom === 'garden') {
-          s.openAlbumFromMemory(memory);
-        } else {
-          s.openMemory(memory);
-        }
+        s.openMemory(memory);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      if (useGameStore.getState().nearbyMemory?.id === memory.id) {
-        useGameStore.getState().setNearbyMemory(null);
-      }
     };
   }, [memory]);
 
   const handleClick = useCallback(() => {
-    if (useGameStore.getState().currentRoom === 'garden') {
-      openAlbumFromMemory(memory);
-    } else {
-      openMemory(memory);
-    }
-  }, [memory, openMemory, openAlbumFromMemory]);
+    openMemory(memory);
+  }, [memory, openMemory]);
 
   const frameRim = hanging ? 0.065 : 0.18;
   const matBorder = hanging ? 0.025 : 0.06;

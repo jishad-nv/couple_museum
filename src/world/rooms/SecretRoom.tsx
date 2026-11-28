@@ -7,6 +7,7 @@ import Floor from '../objects/Floor';
 import Wall from '../objects/Wall';
 import Bench, { CeilingLight } from '../objects/Decorations';
 import PhotoFrame from '../objects/PhotoFrame';
+import { LuxuryDoorArchwayFrame, LuxuryDoorLeaf } from '../objects/MuseumDoor';
 import { COLORS, WALL_HEIGHT, WALL_THICKNESS } from '../../utils/constants';
 import {
   DEFAULT_MUSEUM_PHOTOS,
@@ -108,6 +109,7 @@ function QuizMasterNPC() {
   const nearbyInteractable = useGameStore((s) => s.nearbyInteractable);
   const showLoveQuizModal = useGameStore((s) => s.showLoveQuizModal);
   const setShowLoveQuizModal = useGameStore((s) => s.setShowLoveQuizModal);
+  const setShowDoYouLoveMeModal = useGameStore((s) => s.setShowDoYouLoveMeModal);
   const quizCompleted = useGameStore((s) => s.secretProgress.quizCompleted);
 
   useFrame((state, rawDelta) => {
@@ -115,12 +117,12 @@ function QuizMasterNPC() {
     const t = state.clock.elapsedTime;
     const s = useGameStore.getState();
 
-    // Smoothly turn to face the approaching couple
+    // Smoothly turn to face the approaching couple (default facing -Z into center aisle)
     if (rootRef.current) {
       const dx = s.playerPosition.x - QUIZ_MASTER_POS[0];
       const dz = s.playerPosition.z - QUIZ_MASTER_POS[2];
       const dist = Math.hypot(dx, dz);
-      const targetYaw = dist < 7.5 ? Math.atan2(dx, dz) : 0.72;
+      const targetYaw = dist < 7.5 ? Math.atan2(dx, dz) : -2.65;
       let diff = targetYaw - rootRef.current.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
@@ -160,7 +162,12 @@ function QuizMasterNPC() {
       position={QUIZ_MASTER_POS}
       onClick={(e) => {
         e.stopPropagation();
-        setShowLoveQuizModal(true);
+        const s = useGameStore.getState();
+        if (!s.secretProgress.yesConfirmed) {
+          setShowDoYouLoveMeModal(true);
+        } else {
+          setShowLoveQuizModal(true, true);
+        }
       }}
     >
       <RigidBody type="fixed" colliders={false}>
@@ -182,7 +189,7 @@ function QuizMasterNPC() {
         />
       </mesh>
 
-      <group ref={rootRef} rotation={[0, 0.72, 0]}>
+      <group ref={rootRef} rotation={[0, -2.65, 0]}>
         {/* Shoes */}
         <mesh position={[-0.1, 0.05, 0.03]} castShadow>
           <boxGeometry args={[0.1, 0.1, 0.22]} />
@@ -309,6 +316,7 @@ function RewardBox3D() {
   const quizCompleted = useGameStore((s) => s.secretProgress.quizCompleted);
   const keyCollected = useGameStore((s) => s.secretProgress.keyCollected);
   const collectGoldenKey = useGameStore((s) => s.collectGoldenKey);
+  const setShowSecretLetterModal = useGameStore((s) => s.setShowSecretLetterModal);
 
   useFrame((state, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
@@ -341,10 +349,13 @@ function RewardBox3D() {
   return (
     <group
       position={REWARD_BOX_POS}
+      rotation={[0, Math.PI, 0]}
       onClick={(e) => {
         e.stopPropagation();
         if (quizCompleted && !keyCollected) {
           collectGoldenKey();
+        } else if (quizCompleted) {
+          setShowSecretLetterModal(true);
         }
       }}
     >
@@ -459,23 +470,35 @@ function RewardBox3D() {
               </mesh>
             ))}
           </group>
-          <pointLight position={[0, 1.45, 0]} intensity={3.2} color="#ffd070" distance={4.5} />
         </>
+      )}
+
+      {/* Folded Reward Letter resting inside the open keepsake box */}
+      {quizCompleted && (
+        <group position={[0, 1.06, 0.04]} rotation={[0.14, 0.12, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.36, 0.025, 0.24]} />
+            <meshStandardMaterial color="#f7e8d0" roughness={0.68} />
+          </mesh>
+          <mesh position={[0.04, 0.018, 0.03]}>
+            <cylinderGeometry args={[0.032, 0.032, 0.014, 12]} />
+            <meshStandardMaterial color="#b22949" emissive="#d84366" emissiveIntensity={0.65} />
+          </mesh>
+        </group>
       )}
 
       <Text
         position={[0, 1.78, 0]}
-        rotation={[0, Math.PI, 0]}
         fontSize={0.115}
         color={keyCollected ? '#a6ebb4' : quizCompleted ? '#ffe49e' : '#d8c4a6'}
         anchorX="center"
         font={undefined}
       >
         {keyCollected
-          ? 'KEY COLLECTED ✓'
+          ? 'BOX OPENED · VIEW LETTER ♡'
           : quizCompleted
-          ? 'GOLDEN KEY UNLOCKED!'
-          : 'LOCKED REWARD CHEST'}
+          ? 'OPEN BOX · KEY & LETTER!'
+          : 'LOCKED REWARD BOX'}
       </Text>
     </group>
   );
@@ -493,18 +516,20 @@ function PrivateVaultDoor() {
   const keyUnlockAnimActive = useGameStore((s) => s.keyUnlockAnimActive);
   const unlockOrEnterPrivateChamber = useGameStore((s) => s.unlockOrEnterPrivateChamber);
 
-  const isPassable = isPrivateDoorOpen || secondDoorUnlocked;
+  const isPassable = isPrivateDoorOpen;
 
   useFrame((_, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
     const s = useGameStore.getState();
     const openTarget = s.isPrivateDoorOpen ? 1 : 0;
 
-    doorProgressRef.current = THREE.MathUtils.lerp(
+    const nextProgress = THREE.MathUtils.lerp(
       doorProgressRef.current,
       openTarget,
       1 - Math.exp(-3.4 * delta)
     );
+    doorProgressRef.current =
+      Math.abs(openTarget - nextProgress) < 0.0005 ? openTarget : nextProgress;
     if (doorPivotRef.current) {
       // Swing gracefully westward into the chamber
       doorPivotRef.current.rotation.y = doorProgressRef.current * 1.48;
@@ -525,71 +550,50 @@ function PrivateVaultDoor() {
 
   return (
     <group position={PRIVATE_DOOR_POS}>
-      {/* Ornate Vault Archway Pilasters & Lintel */}
-      <mesh position={[0, 1.85, -1.26]} castShadow receiveShadow>
-        <boxGeometry args={[0.42, 3.7, 0.24]} />
-        <meshStandardMaterial color="#4b2936" roughness={0.45} />
-      </mesh>
-      <mesh position={[0, 1.85, 1.26]} castShadow receiveShadow>
-        <boxGeometry args={[0.42, 3.7, 0.24]} />
-        <meshStandardMaterial color="#4b2936" roughness={0.45} />
-      </mesh>
-      <mesh position={[0, 3.65, 0]} castShadow>
-        <boxGeometry args={[0.46, 0.3, 2.8]} />
-        <meshStandardMaterial color={COLORS.gold} metalness={0.42} roughness={0.3} />
-      </mesh>
+      <group rotation={[0, Math.PI / 2, 0]}>
+        <LuxuryDoorArchwayFrame openingWidth={2.26} openingHeight={3.52} depth={0.44} variant="vault" />
+      </group>
 
-      {/* Physics blocker while locked/closed */}
-      {!isPassable && (
-        <RigidBody type="fixed" colliders={false}>
-          <CuboidCollider args={[0.28, 1.8, 1.15]} position={[0, 1.8, 0]} />
-        </RigidBody>
-      )}
+      {/* Physics blocker while locked/closed (permanently mounted sensor toggle avoids Rapier rebuild stall) */}
+      <RigidBody type="fixed" colliders={false}>
+        <CuboidCollider args={[0.28, 1.8, 1.15]} position={[0, 1.8, 0]} sensor={isPassable} />
+      </RigidBody>
 
-      {/* Hinged Mysterious Vault Door Leaf */}
+      {/* Hinged Luxury Vault Door Leaf */}
       <group
         ref={doorPivotRef}
         position={[0, 0, 1.12]}
         onClick={(e) => {
           e.stopPropagation();
-          unlockOrEnterPrivateChamber();
+          const st = useGameStore.getState();
+          if (st.currentRoom === 'private_chamber') {
+            st.exitPrivateChamberToSecret();
+          } else {
+            unlockOrEnterPrivateChamber();
+          }
         }}
       >
-        <mesh position={[0, 1.75, -1.12]} castShadow receiveShadow>
-          <boxGeometry args={[0.14, 3.5, 2.22]} />
-          <meshStandardMaterial color="#1f111c" roughness={0.48} metalness={0.22} />
-        </mesh>
-        {/* Concentric Gilded Medallion & Lock Rune on East Face (inside Secret Room) */}
-        <mesh position={[0.09, 1.75, -1.12]} rotation={[0, Math.PI / 2, 0]}>
-          <ringGeometry args={[0.56, 0.68, 28]} />
-          <meshStandardMaterial
-            color={COLORS.goldLight}
-            emissive={keyCollected ? '#ffd378' : '#704d24'}
-            emissiveIntensity={keyCollected ? 0.9 : 0.25}
-            metalness={0.5}
-            roughness={0.25}
+        <group rotation={[0, Math.PI / 2, 0]}>
+          <LuxuryDoorLeaf
+            width={2.22}
+            height={3.5}
+            thickness={0.14}
+            variant="vault"
+            hingeSide="left"
+            showCenterMedallion
+            medallionActive={keyCollected || secondDoorUnlocked}
           />
-        </mesh>
-        <mesh position={[0.1, 1.36, -1.12]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.14, 0.14, 0.05, 16]} />
-          <meshStandardMaterial
-            color={COLORS.gold}
-            emissive={keyCollected ? '#ffbe4f' : '#2a1810'}
-            emissiveIntensity={keyCollected ? 1.1 : 0.15}
-            metalness={0.55}
-            roughness={0.25}
-          />
-        </mesh>
+        </group>
         <Text
-          position={[0.11, 2.58, -1.12]}
+          position={[0.12, 2.75, -1.12]}
           rotation={[0, Math.PI / 2, 0]}
-          fontSize={0.14}
+          fontSize={0.12}
           color={COLORS.goldLight}
           anchorX="center"
-          letterSpacing={0.1}
+          letterSpacing={0.09}
           font={undefined}
         >
-          {secondDoorUnlocked ? 'OUR PRIVATE MEMORIES' : 'SEALED SANCTUARY'}
+          {secondDoorUnlocked ? 'SECRET ROOM · UNLOCKED' : 'SECRET ROOM · PASSWORD LOCKED'}
         </Text>
       </group>
 
@@ -618,7 +622,6 @@ function PrivateVaultDoor() {
             <boxGeometry args={[0.036, 0.07, 0.022]} />
             <meshStandardMaterial color="#ffea92" emissive="#ffc240" emissiveIntensity={2.1} />
           </mesh>
-          <pointLight position={[0.1, 0, 0]} intensity={4} color="#ffd068" distance={4} />
         </group>
       )}
     </group>
@@ -627,12 +630,12 @@ function PrivateVaultDoor() {
 
 export default function SecretRoom() {
   const photos = useGameStore((s) => s.photos);
-  const textsMap = useGameStore((s) => s.textsMap);
   const currentRoom = useGameStore((s) => s.currentRoom);
   const setShowSecretLetterModal = useGameStore((s) => s.setShowSecretLetterModal);
   const embersRef = useRef<THREE.Points>(null);
+  const autoPromptedQuizRef = useRef(false);
 
-  const secretTitle = textsMap.secret_room_title || 'OUR SECRET ROOM';
+  const secretTitle = 'PRE-SECRET ROOM';
 
   const secretMemories = useMemo<MuseumPhotoItem[]>(() => {
     const tagged = photos.filter((p) => p.roomTarget === 'secret');
@@ -681,14 +684,24 @@ export default function SecretRoom() {
         s.showSecretLetterModal ||
         s.showDoYouLoveMeModal ||
         s.showLoveQuizModal ||
-        s.showPrivateMemoryModal
+        s.showPrivateMemoryModal ||
+        s.showPasswordModal ||
+        s.showProposalModal
       ) {
         return;
       }
       if (s.nearbyInteractable === 'quiz-master') {
-        s.setShowLoveQuizModal(true);
+        if (!s.secretProgress.yesConfirmed) {
+          s.setShowDoYouLoveMeModal(true);
+        } else {
+          s.setShowLoveQuizModal(true, true);
+        }
       } else if (s.nearbyInteractable === 'reward-box') {
-        s.collectGoldenKey();
+        if (s.secretProgress.quizCompleted && !s.secretProgress.keyCollected) {
+          s.collectGoldenKey();
+        } else if (s.secretProgress.quizCompleted) {
+          s.setShowSecretLetterModal(true);
+        }
       } else if (s.nearbyInteractable === 'private-door') {
         s.unlockOrEnterPrivateChamber();
       } else if (s.nearbyInteractable === 'secret-letter') {
@@ -712,6 +725,7 @@ export default function SecretRoom() {
     const pz = s.playerPosition.z;
 
     if (s.currentRoom !== 'secret') {
+      autoPromptedQuizRef.current = false;
       if (
         s.nearbyInteractable === 'quiz-master' ||
         s.nearbyInteractable === 'reward-box' ||
@@ -724,10 +738,33 @@ export default function SecretRoom() {
       return;
     }
 
+    const dQuiz = Math.hypot(px - QUIZ_MASTER_POS[0], pz - QUIZ_MASTER_POS[2]);
+    if (dQuiz > 4.4) {
+      autoPromptedQuizRef.current = false;
+    } else if (
+      dQuiz < 2.25 &&
+      !s.secretProgress.quizCompleted &&
+      !autoPromptedQuizRef.current &&
+      !s.scriptedWalk &&
+      !s.showDoYouLoveMeModal &&
+      !s.showLoveQuizModal &&
+      !s.showSecretLetterModal &&
+      !s.showPasswordModal &&
+      !s.showAdminLogin &&
+      !s.showAdminPanel
+    ) {
+      autoPromptedQuizRef.current = true;
+      if (!s.secretProgress.yesConfirmed) {
+        s.setShowDoYouLoveMeModal(true);
+      } else {
+        s.setShowLoveQuizModal(true, true);
+      }
+    }
+
     const candidates: Array<{ id: string; dist: number; max: number }> = [
       {
         id: 'quiz-master',
-        dist: Math.hypot(px - QUIZ_MASTER_POS[0], pz - QUIZ_MASTER_POS[2]),
+        dist: dQuiz,
         max: 3.1,
       },
       {
@@ -737,7 +774,9 @@ export default function SecretRoom() {
       },
       {
         id: 'private-door',
-        dist: Math.hypot(px - PRIVATE_DOOR_POS[0], pz - PRIVATE_DOOR_POS[2]),
+        dist: !s.isPrivateDoorOpen
+          ? Math.hypot(px - PRIVATE_DOOR_POS[0], pz - PRIVATE_DOOR_POS[2])
+          : 999,
         max: 3.3,
       },
       {
@@ -747,7 +786,7 @@ export default function SecretRoom() {
       },
     ];
 
-    if (s.secretProgress.quizCompleted && !s.secretProgress.keyCollected) {
+    if (s.secretProgress.quizCompleted) {
       candidates.push({
         id: 'reward-box',
         dist: Math.hypot(px - REWARD_BOX_POS[0], pz - REWARD_BOX_POS[2]),
@@ -885,12 +924,12 @@ export default function SecretRoom() {
         <Text
           position={[0.06, -0.18, 0]}
           rotation={[0, Math.PI / 2, 0]}
-          fontSize={0.12}
+          fontSize={0.11}
           color="#f2c4cf"
           anchorX="center"
           font={undefined}
         >
-          Private Promises & Hidden Mystery
+          Meet the Quiz Master, Open the Chest &amp; Enter the Secret Room Password
         </Text>
       </group>
 
@@ -929,6 +968,16 @@ export default function SecretRoom() {
           <cylinderGeometry args={[0.042, 0.042, 0.02, 12]} />
           <meshStandardMaterial color="#b22949" emissive="#d84366" emissiveIntensity={0.75} />
         </mesh>
+        <Text
+          position={[0, 1.52, 0]}
+          rotation={[0, Math.PI, 0]}
+          fontSize={0.11}
+          color={COLORS.goldLight}
+          anchorX="center"
+          font={undefined}
+        >
+          SECRET LOVE LETTER
+        </Text>
       </group>
 
       {/* Interactive Plush Velvet Loveseat */}

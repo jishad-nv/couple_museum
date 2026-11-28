@@ -21,6 +21,18 @@ interface BenchProps {
 // Global registry of mounted interactive benches so closest seat always wins cleanly
 const interactiveBenchRegistry = new Map<string, InteractiveBenchEntry>();
 
+export function updateNearestBench(playerPos: { x: number; z: number }): void {
+  const s = useGameStore.getState();
+  const nearest = findNearestBench(
+    playerPos,
+    interactiveBenchRegistry.values(),
+    INTERACTION_DISTANCE
+  );
+  if (nearest?.id !== s.nearbyBench?.id) {
+    s.setNearbyBench(nearest);
+  }
+}
+
 export default function Bench({
   position,
   rotation = [0, 0, 0],
@@ -30,9 +42,11 @@ export default function Bench({
 }: BenchProps) {
   const groupRef = useRef<THREE.Group>(null);
   const worldPosRef = useRef(new THREE.Vector3());
+  const posSyncedRef = useRef(false);
 
   useEffect(() => {
     if (!interactive || !benchId) return;
+    posSyncedRef.current = false;
     interactiveBenchRegistry.set(benchId, {
       id: benchId,
       label: benchLabel,
@@ -49,7 +63,7 @@ export default function Bench({
   }, [interactive, benchId, benchLabel, position, rotation]);
 
   useFrame(() => {
-    if (!interactive || !benchId || !groupRef.current) return;
+    if (!interactive || !benchId || !groupRef.current || posSyncedRef.current) return;
     groupRef.current.getWorldPosition(worldPosRef.current);
     interactiveBenchRegistry.set(benchId, {
       id: benchId,
@@ -57,21 +71,7 @@ export default function Bench({
       position: [worldPosRef.current.x, 0, worldPosRef.current.z],
       rotation: rotation[1],
     });
-
-    const s = useGameStore.getState();
-    const nearest = findNearestBench(
-      s.playerPosition,
-      interactiveBenchRegistry.values(),
-      INTERACTION_DISTANCE
-    );
-
-    if (nearest?.id === benchId) {
-      if (s.nearbyBench?.id !== benchId) {
-        s.setNearbyBench(nearest);
-      }
-    } else if (!nearest && s.nearbyBench?.id === benchId) {
-      s.setNearbyBench(null);
-    }
+    posSyncedRef.current = true;
   });
 
   // Bench height dimensions calibrated so Cushion top sits strictly at BENCH_CUSHION_TOP_Y (0.465m)

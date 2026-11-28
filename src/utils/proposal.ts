@@ -1,6 +1,6 @@
 import {
+  PRIVATE_CHAMBER_CENTER,
   SECRET_PROPOSAL_RADIUS,
-  SECRET_PROPOSAL_SPOT,
   type MuseumRoom,
 } from './museumLayout.ts';
 
@@ -13,7 +13,7 @@ export type ProposalStage =
   | 'embracing'
   | 'celebrating';
 
-export const PROPOSAL_SUITABLE_ROOMS: ReadonlySet<MuseumRoom> = new Set(['secret']);
+export const PROPOSAL_SUITABLE_ROOMS: ReadonlySet<MuseumRoom> = new Set(['private_chamber']);
 
 export function isProposalBusy(stage: ProposalStage): boolean {
   return stage !== 'idle';
@@ -21,6 +21,21 @@ export function isProposalBusy(stage: ProposalStage): boolean {
 
 export function isProposalCelebrationActive(stage: ProposalStage): boolean {
   return stage === 'accepted_standing' || stage === 'embracing' || stage === 'celebrating';
+}
+
+/**
+ * Secret Room flower petals play strictly while the proposal acceptance/celebration
+ * moment is actively happening, and stop cleanly as soon as it completes (`idle`).
+ */
+export function shouldPlayProposalFlowerAnimation(stage: ProposalStage): boolean {
+  return isProposalCelebrationActive(stage);
+}
+
+/**
+ * Secret Room proposal must never trigger firework bursts/explosions.
+ */
+export function isProposalFireworksAllowed(room: MuseumRoom): boolean {
+  return room !== 'private_chamber' && room !== 'secret';
 }
 
 export function shouldShowCoupleToolbar(currentRoom: MuseumRoom, modalOpen: boolean): boolean {
@@ -45,11 +60,18 @@ export function isSuitableProposalLocation(
   if (!PROPOSAL_SUITABLE_ROOMS.has(room)) return false;
   if (!opts.secretRoomUnlocked) return false;
 
-  const distFromProposalSpot = Math.hypot(
-    playerPos.x - SECRET_PROPOSAL_SPOT[0],
-    playerPos.z - SECRET_PROPOSAL_SPOT[2]
+  // Must stay inside the inner Secret Room open floor clear of walls and bookshelves
+  if (playerPos.x < -52.2 || playerPos.x > -37.2 || playerPos.z < -28.8 || playerPos.z > -14.2) {
+    return false;
+  }
+
+  const distFromCenterBoard = Math.hypot(
+    playerPos.x - PRIVATE_CHAMBER_CENTER[0],
+    playerPos.z - PRIVATE_CHAMBER_CENTER[2]
   );
-  if (distFromProposalSpot > SECRET_PROPOSAL_RADIUS) return false;
+  if (distFromCenterBoard < 2.2 || distFromCenterBoard > SECRET_PROPOSAL_RADIUS) {
+    return false;
+  }
 
   return true;
 }

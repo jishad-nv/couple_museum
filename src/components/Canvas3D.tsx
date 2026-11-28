@@ -1,6 +1,9 @@
 import { Suspense, useEffect, useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
 import Museum from '../world/Museum';
+import { useGameStore } from '../store/gameStore';
+import { computeResponsiveFov } from '../utils/orientation';
 
 function detectSoftwareGl(): boolean {
   if (typeof document === 'undefined') return false;
@@ -17,12 +20,67 @@ function detectSoftwareGl(): boolean {
   }
 }
 
-function SoftwareGlLoop() {
+function ViewportCameraSync({ isSoftwareGl }: { isSoftwareGl: boolean }) {
+  const { camera, advance, setSize } = useThree();
+  const isMobile = useGameStore((s) => s.isMobile);
+  const isPortrait = useGameStore((s) => s.isPortrait);
+
+  useEffect(() => {
+    let rafId = 0;
+    let settleTimer = 0;
+
+    const applyViewportMetrics = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (w <= 0 || h <= 0) return;
+
+      setSize(w, h);
+      if (camera instanceof THREE.PerspectiveCamera) {
+        const aspect = w / h;
+        const nextFov = computeResponsiveFov(w, h, useGameStore.getState().isMobile);
+        if (Math.abs(camera.aspect - aspect) > 0.001 || Math.abs(camera.fov - nextFov) > 0.05) {
+          camera.aspect = aspect;
+          camera.fov = nextFov;
+          camera.updateProjectionMatrix();
+        }
+      }
+      if (isSoftwareGl && !(useGameStore.getState().isMobile && useGameStore.getState().isPortrait)) {
+        advance(performance.now() * 0.001);
+      }
+    };
+
+    const scheduleSync = () => {
+      window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(applyViewportMetrics);
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(applyViewportMetrics, 160);
+    };
+
+    applyViewportMetrics();
+    window.addEventListener('resize', scheduleSync);
+    window.addEventListener('orientationchange', scheduleSync);
+    window.visualViewport?.addEventListener('resize', scheduleSync);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(settleTimer);
+      window.removeEventListener('resize', scheduleSync);
+      window.removeEventListener('orientationchange', scheduleSync);
+      window.visualViewport?.removeEventListener('resize', scheduleSync);
+    };
+  }, [camera, advance, setSize, isSoftwareGl, isMobile, isPortrait]);
+
+  return null;
+}
+
+function SoftwareGlLoop({ paused }: { paused: boolean }) {
   const { gl, advance } = useThree();
 
   useEffect(() => {
+    if (paused) return;
     let cancelled = false;
     let timerId = 0;
+    const startMs = performance.now();
 
     const afterDraw = (cb: () => void) => {
       const ctx = gl.getContext() as WebGL2RenderingContext | null;
@@ -50,42 +108,46 @@ function SoftwareGlLoop() {
 
     const tick = () => {
       if (cancelled) return;
-      advance(performance.now());
+      advance((performance.now() - startMs) * 0.001);
       afterDraw(tick);
     };
 
-    timerId = window.setTimeout(tick, 16);
+    timerId = window.setTimeout(tick, 0);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timerId);
     };
-  }, [gl, advance]);
+  }, [gl, advance, paused]);
 
   return null;
 }
 
 export default function Canvas3D() {
   const isSoftwareGl = useMemo(() => detectSoftwareGl(), []);
+  const isMobile = useGameStore((s) => s.isMobile);
+  const isPortrait = useGameStore((s) => s.isPortrait);
+  const orientationBlocked = isMobile && isPortrait;
 
   return (
     <Canvas
       shadows={!isSoftwareGl}
       dpr={isSoftwareGl ? 1 : [1, 2]}
-      frameloop={isSoftwareGl ? 'never' : 'always'}
-      camera={{ fov: 60, near: 0.1, far: 200, position: [0, 5, 10] }}
+      frameloop={isSoftwareGl || orientationBlocked ? 'never' : 'always'}
+      camera={{ fov: 60, near: 0.1, far: 360, position: [0, 5, 10] }}
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100vw',
-        height: '100vh',
+        height: '100dvh',
       }}
       gl={{
         antialias: !isSoftwareGl,
         alpha: false,
         powerPreference: 'high-performance',
         stencil: false,
+        preserveDrawingBuffer: isSoftwareGl,
       }}
       onCreated={({ gl }) => {
         gl.setClearColor('#070e1e');
@@ -94,7 +156,8 @@ export default function Canvas3D() {
       }}
     >
       <fog attach="fog" args={['#091124', 52, 130]} />
-      {isSoftwareGl && <SoftwareGlLoop />}
+      <ViewportCameraSync isSoftwareGl={isSoftwareGl} />
+      {isSoftwareGl && <SoftwareGlLoop paused={orientationBlocked} />}
       <Suspense fallback={null}>
         <Museum />
       </Suspense>

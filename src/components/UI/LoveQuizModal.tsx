@@ -345,8 +345,8 @@ export default function LoveQuizModal() {
                 color: 'rgba(248, 236, 224, 0.85)',
               }}
             >
-              Look toward the glowing decorative keepsake box in the corner—the lid is opening and
-              your Golden Key is rising!
+              The keepsake Reward Box in this Pre-Secret Room is now open—collect your Golden Key
+              and read the Secret Letter waiting inside!
             </p>
             <button
               type="button"
@@ -364,7 +364,7 @@ export default function LoveQuizModal() {
                 cursor: 'pointer',
               }}
             >
-              OPEN REWARD CHEST ✨
+              OPEN REWARD BOX &amp; LETTER ✨
             </button>
           </div>
         )}

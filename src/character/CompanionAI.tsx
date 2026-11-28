@@ -9,6 +9,8 @@ import {
   getDanceCouplePositions,
   getWeddingCeremonyPose,
 } from '../utils/museumLayout';
+import { getCakeCuttingPose } from '../utils/weddingCake';
+import { getActiveBouquetReaction, getBouquetHandoverActions } from '../utils/bouquet';
 
 function wrapAngle(angle: number): number {
   let a = angle;
@@ -27,6 +29,10 @@ export default function CompanionAI() {
   const isHoldingHands = useGameStore((s) => s.isHoldingHands);
   const currentRoom = useGameStore((s) => s.currentRoom);
   const brideOutfit = useGameStore((s) => s.brideOutfit);
+  const createdBouquet = useGameStore((s) => s.createdBouquet);
+  const heldBouquetBy = useGameStore((s) => s.heldBouquetBy);
+  const bouquetHandoverStage = useGameStore((s) => s.bouquetHandoverStage);
+  const bouquetHandoverAnchor = useGameStore((s) => s.bouquetHandoverAnchor);
 
   useFrame((_, rawDelta) => {
     if (!groupRef.current) return;
@@ -46,7 +52,23 @@ export default function CompanionAI() {
       currentRotation.current += diff * (1 - Math.exp(-10 * delta));
       state.setCompanionAction('sit');
     }
-    // 2. Wedding Ceremony Altar Poses (vows, hug, celebrating)
+    // 2. Wedding Cake Cutting & Mutual Feeding sequence
+    else if (state.currentRoom === 'wedding' && state.cakeCuttingStage !== 'idle') {
+      const pose = getCakeCuttingPose(state.cakeCuttingStage);
+      targetPos.current.set(pose.partner[0], 0, pose.partner[2]);
+      const dist = currentPos.current.distanceTo(targetPos.current);
+      currentPos.current.lerp(targetPos.current, 1 - Math.exp(-8.5 * delta));
+      const desiredFacing =
+        state.cakeCuttingStage === 'approaching' && dist > 0.14
+          ? Math.atan2(targetPos.current.x - currentPos.current.x, targetPos.current.z - currentPos.current.z)
+          : pose.partnerFacing;
+      const diff = wrapAngle(desiredFacing - currentRotation.current);
+      currentRotation.current += diff * (1 - Math.exp(-10 * delta));
+      state.setCompanionAction(
+        state.cakeCuttingStage === 'approaching' && dist > 0.14 ? 'walk' : pose.partnerAction
+      );
+    }
+    // 2b. Wedding Ceremony Altar Poses (vows, hug, celebrating)
     else if (
       state.currentRoom === 'wedding' &&
       (state.weddingStage === 'vows' ||
@@ -98,6 +120,19 @@ export default function CompanionAI() {
       } else if (state.proposalStage === 'celebrating') {
         state.setCompanionAction('celebrate');
       }
+    }
+    // 3c. Active Bouquet Handover Sequence — Girl approaches/receives/reacts smoothly
+    else if (state.bouquetHandoverStage !== 'idle' && state.bouquetHandoverAnchor) {
+      const seqDelta = Math.min(rawDelta, 0.5);
+      const anchor = state.bouquetHandoverAnchor;
+      targetPos.current.set(anchor.girlPos[0], 0, anchor.girlPos[2]);
+      currentPos.current.lerp(targetPos.current, 1 - Math.exp(-9 * seqDelta));
+      const diff = wrapAngle(anchor.girlFacing - currentRotation.current);
+      currentRotation.current += diff * (1 - Math.exp(-12 * seqDelta));
+
+      const girlDist = currentPos.current.distanceTo(targetPos.current);
+      const actions = getBouquetHandoverActions(state.bouquetHandoverStage, anchor.giver, girlDist);
+      state.setCompanionAction(actions.girlAction);
     }
     // 4. Active Hug or Kiss sequence — face player at calibrated non-clipping spacing
     else if (state.activeCoupleSequence === 'hug' || state.activeCoupleSequence === 'kiss') {
@@ -192,6 +227,12 @@ export default function CompanionAI() {
         isHoldingHands={isHoldingHands}
         weddingMode={currentRoom === 'wedding'}
         brideOutfit={brideOutfit}
+        heldBouquet={heldBouquetBy === 'girl' ? createdBouquet : null}
+        bouquetReaction={
+          bouquetHandoverAnchor?.receiver === 'girl'
+            ? getActiveBouquetReaction(bouquetHandoverStage, 'girl')
+            : 'none'
+        }
       />
     </group>
   );

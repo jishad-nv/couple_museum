@@ -70,11 +70,19 @@ export function getMemoryArtworkDataUrl(memory: MemoryItem): string {
   return url;
 }
 
+const memoryCanvasTextureCache = new Map<string, THREE.CanvasTexture>();
+
 /**
- * Creates a Three.js texture immediately with the painterly fallback artwork and upgrades
- * seamlessly to the real photograph if `memory.photoSrc` resolves to an uploaded or bundled image.
+ * Creates or retrieves a cached Three.js texture immediately with the painterly fallback artwork and upgrades
+ * seamlessly once to the real photograph if `memory.photoSrc` resolves to an uploaded or bundled image.
  */
 export function createMemoryCanvasTexture(memory: MemoryItem): THREE.CanvasTexture {
+  const cacheKey = `${memory.id}:${memory.title}:${memory.photoSrc}:${memory.motif}:${memory.palette.join(',')}`;
+  const cached = memoryCanvasTextureCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 384;
@@ -83,6 +91,7 @@ export function createMemoryCanvasTexture(memory: MemoryItem): THREE.CanvasTextu
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
+  memoryCanvasTextureCache.set(cacheKey, texture);
 
   const resolvedUrl = resolveUploadedAssetUrl(memory.photoSrc);
   if (resolvedUrl && typeof Image !== 'undefined') {
@@ -91,7 +100,6 @@ export function createMemoryCanvasTexture(memory: MemoryItem): THREE.CanvasTextu
     img.onload = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      // Cover-crop onto 512x384 canvas preserving aspect ratio cleanly
       const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
       const drawW = img.width * scale;
       const drawH = img.height * scale;
@@ -99,7 +107,6 @@ export function createMemoryCanvasTexture(memory: MemoryItem): THREE.CanvasTextu
       const dy = (canvas.height - drawH) * 0.5;
       ctx.drawImage(img, dx, dy, drawW, drawH);
 
-      // Subtle museum border + bottom vignette
       ctx.strokeStyle = 'rgba(200, 165, 90, 0.35)';
       ctx.lineWidth = 4;
       ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);

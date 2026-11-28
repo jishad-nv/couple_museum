@@ -26,24 +26,24 @@ export const ENTRANCE_ARRIVAL_POS: [number, number, number] = [0, 0, 0.8];
 export const THEATRE_ARRIVAL_POS: [number, number, number] = [0, 0, -41.5];
 export const GARDEN_ARRIVAL_POS: [number, number, number] = [15.5, 0, -34.8];
 
-// Secret Room ("Our Secret Room") west of the Circular Gallery
+// Pre-Secret Room ("Pre-Secret Room") west of the Circular Gallery
 export const SECRET_ROOM_CENTER: [number, number, number] = [-26.5, 0, -21.5];
 export const SECRET_ARRIVAL_POS: [number, number, number] = [-21.4, 0, -21.5];
 export const SECRET_RETURN_POS: [number, number, number] = [-13.8, 0, -21.5];
 export const SECRET_LOVESEAT_POS: [number, number, number] = [-25.0, 0, -26.4];
-export const SECRET_LETTER_PLINTH_POS: [number, number, number] = [-30.0, 0, -25.8];
-// Quiz Master & Reward Box guard the Secret Room entrance in the Circular Gallery West Alcove
-export const QUIZ_MASTER_POS: [number, number, number] = [-14.0, 0, -18.2];
-export const REWARD_BOX_POS: [number, number, number] = [-14.0, 0, -24.8];
-export const SECRET_PROPOSAL_SPOT: [number, number, number] = [-26.5, 0, -21.5];
-export const SECRET_PROPOSAL_RADIUS = 3.2;
+// Quiz Master, Reward Box & Secret Letter sit completely inside the Pre-Secret Room
+export const QUIZ_MASTER_POS: [number, number, number] = [-25.5, 0, -18.2];
+export const REWARD_BOX_POS: [number, number, number] = [-30.6, 0, -17.6];
+export const SECRET_LETTER_PLINTH_POS: [number, number, number] = [-29.2, 0, -17.6];
 export const PRIVATE_DOOR_POS: [number, number, number] = [-35.6, 0, -21.5];
 
-// Hidden Memory Chamber ("Our Private Memories") behind the second mysterious door
+// Actual Password-Protected Secret Room ("Our Secret Room") behind the inner door
 export const PRIVATE_CHAMBER_CENTER: [number, number, number] = [-44.8, 0, -21.5];
 export const PRIVATE_CHAMBER_ARRIVAL_POS: [number, number, number] = [-39.0, 0, -21.5];
 export const PRIVATE_CHAMBER_RETURN_POS: [number, number, number] = [-32.4, 0, -21.5];
 export const PRIVATE_CENTRAL_BOARD_POS: [number, number, number] = [-44.8, 0, -21.5];
+export const SECRET_PROPOSAL_SPOT: [number, number, number] = [-44.8, 0, -21.5];
+export const SECRET_PROPOSAL_RADIUS = 7.8;
 
 export const PRIVATE_MEMORY_DISPLAY_SLOTS: ReadonlyArray<{
   position: [number, number, number];

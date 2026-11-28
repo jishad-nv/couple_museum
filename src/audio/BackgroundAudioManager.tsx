@@ -195,6 +195,45 @@ function triggerHarpCelestaNote(
   osc2.stop(when + duration + 0.05);
 }
 
+function triggerWeddingBells(ctx: AudioContext, dest: AudioNode): void {
+  if (ctx.state !== 'running') return;
+  const now = ctx.currentTime;
+  const freqs = [783.99, 1174.66, 1567.98, 1975.54]; // G5, D6, G6, B6
+  freqs.forEach((freq, idx) => {
+    const when = now + idx * 0.2;
+    const dur = 4.2;
+
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(freq, when);
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 2.76, when);
+
+    const osc3 = ctx.createOscillator();
+    osc3.type = 'sine';
+    osc3.frequency.setValueAtTime(freq * 5.4, when);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.linearRampToValueAtTime(0.1, when + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    osc3.connect(gain);
+    gain.connect(dest);
+
+    osc1.start(when);
+    osc2.start(when);
+    osc3.start(when);
+    osc1.stop(when + dur + 0.1);
+    osc2.stop(when + dur + 0.1);
+    osc3.stop(when + dur + 0.1);
+  });
+}
+
 function triggerStringPadChord(
   ctx: AudioContext,
   dest: AudioNode,
@@ -368,6 +407,29 @@ export default function BackgroundAudioManager() {
   const showVideoPlayer = useGameStore((s) => s.showVideoPlayer);
   const musicTracks = useGameStore((s) => s.musicTracks);
   const museumSettings = useGameStore((s) => s.museumSettings);
+  const weddingStage = useGameStore((s) => s.weddingStage);
+  const prevWeddingStageRef = useRef(weddingStage);
+
+  useEffect(() => {
+    const prev = prevWeddingStageRef.current;
+    prevWeddingStageRef.current = weddingStage;
+    const ctx = ctxRef.current;
+    const master = masterGainRef.current;
+
+    if (currentRoom === 'wedding') {
+      if (weddingStage === 'aisle_walk' && prev !== 'aisle_walk') {
+        const s = useGameStore.getState();
+        if (!s.isMusicPlaying) {
+          s.setIsMusicPlaying(true);
+        }
+      }
+      if (weddingStage === 'vows' && prev !== 'vows') {
+        if (ctx && master) {
+          triggerWeddingBells(ctx, master);
+        }
+      }
+    }
+  }, [currentRoom, weddingStage]);
 
   const ctxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
