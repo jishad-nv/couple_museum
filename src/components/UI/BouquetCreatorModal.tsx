@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
+import { playBouquetRustleSound } from '../../utils/bouquetAudio';
 import {
   FLOWER_OPTIONS,
   MAX_BOUQUET_FLOWERS,
@@ -357,6 +358,7 @@ export default function BouquetCreatorModal() {
 
 function BouquetCreatorSheet() {
   const playerGender = useGameStore((s) => s.playerGender);
+  const isMuted = useGameStore((s) => s.isMuted);
   const closeBouquetCreator = useGameStore((s) => s.closeBouquetCreator);
   const saveCreatedBouquet = useGameStore((s) => s.saveCreatedBouquet);
 
@@ -419,6 +421,7 @@ function BouquetCreatorSheet() {
 
   const handleSelectOrDropFlower = useCallback(
     (flowerId: FlowerChoiceId, targetSlotIndex: number | null = null) => {
+      playBouquetRustleSound(isMuted);
       const slotToReplace = targetSlotIndex ?? replaceTargetIndex;
       if (slotToReplace !== null) {
         setSelectedFlowers((prev) => replaceFlowerAtIndex(prev, slotToReplace, flowerId));
@@ -439,7 +442,7 @@ function BouquetCreatorSheet() {
         return result.next;
       });
     },
-    [replaceTargetIndex]
+    [replaceTargetIndex, isMuted]
   );
 
   // Pointer-based touch drag support for mobile / tablet touch screens
@@ -524,6 +527,7 @@ function BouquetCreatorSheet() {
   const isSideBySide = viewport.width >= 560;
 
   const handleRemoveFlower = (index: number) => {
+    playBouquetRustleSound(isMuted);
     setSelectedFlowers((prev) => removeFlowerAtIndex(prev, index));
     if (replaceTargetIndex === index) {
       setReplaceTargetIndex(null);
@@ -1118,7 +1122,10 @@ function BouquetCreatorSheet() {
                         type="button"
                         data-testid={`btn-ribbon-style-${st.id}`}
                         aria-pressed={active}
-                        onClick={() => setRibbonStyle(st.id)}
+                        onClick={() => {
+                          playBouquetRustleSound(isMuted);
+                          setRibbonStyle(st.id);
+                        }}
                         style={{
                           padding: '5px 10px',
                           borderRadius: 5,
@@ -1150,7 +1157,10 @@ function BouquetCreatorSheet() {
                         aria-label={`Ribbon color ${col.name}`}
                         data-testid={`btn-ribbon-color-${col.id}`}
                         aria-pressed={active}
-                        onClick={() => setRibbonColor(col.id)}
+                        onClick={() => {
+                          playBouquetRustleSound(isMuted);
+                          setRibbonColor(col.id);
+                        }}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
